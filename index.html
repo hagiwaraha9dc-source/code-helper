@@ -224,7 +224,8 @@ main{max-width:1000px;margin:0 auto;padding-block:26px 140px;padding-left:max(16
 .close{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:9px;display:grid;place-items:center;cursor:pointer;color:var(--muted);flex:0 0 auto}
 .close:hover{color:var(--ink)}
 .paste{display:flex;flex-direction:column;gap:10px}
-.scrim.top{z-index:50}.sheet.top{z-index:51}
+.scrim.top{z-index:50}
+.ai-stat{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:60;max-width:calc(100% - 32px);background:var(--surface);color:var(--ink);border:1px solid var(--accent);border-radius:99px;padding:8px 16px;font-size:13px;box-shadow:var(--shadow);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}.sheet.top{z-index:51}
 .paste textarea.short{min-height:18vh}
 .seg-eng{display:flex;flex-direction:column;gap:8px}
 .eng{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
@@ -1034,6 +1035,8 @@ const ERR = {
   blocked:"Gemini と通信できませんでした。電波を確認してください。claude.ai 上で開いている場合は、外部への通信が遮られている可能性があります。",
   g_other:"Gemini でエラーが起きました。",
   g_busy:"Gemini が混み合っていて、軽いモデルでも応答がありませんでした。少し時間をおいてもう一度押してください。",
+  g_slow:"Gemini から長い間応答がありませんでした（軽いモデルでも同じでした）。少し時間をおいてもう一度押してください。",
+  g_long:"解説が長くなりすぎて途中で切れました。もう一度押してください。",
 };
 const errMsg = e => (e && ERR[e.code]) ? ERR[e.code] + (e.detail ? `（${e.detail}）` : "") : "解説を取得できませんでした。もう一度押してください。";
 function parseLoose(t){
@@ -1057,45 +1060,108 @@ const sleepFor = (ms, signal) => new Promise((res, rej) => {
 async function geminiJson(prompt, signal){
   if (!gem.key) throw {code:"no_key"};
   const first = (gem.model || "gemini-flash-latest").trim().replace(/^models\//, "");
-  const models = first === LITE ? [first] : [first, LITE];   // busy → retry, then fall back to the lighter model
+  const models = first === LITE ? [first] : [first, LITE];   // busy/slow → retry, then fall back to the lighter model
   let last;
-  for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try { return await geminiOnce(model, prompt, signal); }
-      catch (e) {
-        last = e;
-        if (e?.code !== "g_busy") throw e;
-        if (attempt < 2) await sleepFor(attempt ? 4000 : 1500, signal);
-      }
-    }
-  }
-  throw last;
-}
-async function geminiOnce(model, prompt, signal){
-  let res;
   try {
-    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method:"POST", signal,
-      headers:{"Content-Type":"application/json", "x-goog-api-key":gem.key},
-      body:JSON.stringify({contents:[{role:"user", parts:[{text:prompt}]}], generationConfig:{responseMimeType:"application/json", temperature:0.3}}),
-    });
-  } catch (e) {
-    if (e?.name === "AbortError" || signal?.aborted) throw {code:"cancelled"};
-    throw {code:"blocked"};
+    for (const model of models) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try { return await geminiOnce(model, prompt, signal); }
+        catch (e) {
+          last = e;
+          if (e?.code === "g_slow") break;                    // no answer for a long time: go straight to the next model
+          if (e?.code !== "g_busy") throw e;
+          if (attempt < 2) { aiStat(`Gemini が混雑中。${attempt ? 4 : 1.5}秒後にやり直します…`); await sleepFor(attempt ? 4000 : 1500, signal); }
+        }
+      }
+      if (model !== models[models.length - 1]) aiStat("軽いモデルに切り替えて、やり直します…");
+    }
+    throw last;
+  } finally { aiStat(null); }
+}
+
+/* small status pill so a long wait never looks like "nothing is happening" */
+let statTimer = null;
+function aiStat(text){
+  let el = $("#aiStat");
+  if (!el) { el = document.createElement("div"); el.id = "aiStat"; el.className = "ai-stat"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+  if (text == null) { el.hidden = true; return; }
+  el.textContent = text; el.hidden = false;
+}
+
+let noThink = true;   // ask for a quick answer without long "thinking"; turned off if the model refuses the setting
+const IDLE_MS = 60000, TOTAL_MS = 240000;
+async function geminiOnce(model, prompt, signal){
+  const ctl = new AbortController();
+  const onAbort = () => ctl.abort();
+  signal?.addEventListener("abort", onAbort, {once:true});
+  const t0 = Date.now(); let got = 0, why = null, idle = null;
+  const kick = () => { clearTimeout(idle); idle = setTimeout(() => { why = "slow"; ctl.abort(); }, IDLE_MS); };
+  const tick = setInterval(() => {
+    const sec = Math.round((Date.now() - t0) / 1000);
+    aiStat(got ? `Gemini から受信中… ${got.toLocaleString()}文字（${sec}秒）` : `Gemini の応答を待っています… ${sec}秒`);
+    if (Date.now() - t0 > TOTAL_MS) { why = "slow"; ctl.abort(); }
+  }, 1000);
+  const label = model === LITE ? "（軽いモデル）" : "";
+  aiStat(`Gemini${label} に送信しました…`);
+  const gen = {responseMimeType:"application/json", temperature:0.3, maxOutputTokens:16384};
+  if (noThink) gen.thinkingConfig = {thinkingBudget:0};
+  try {
+    kick();
+    let res;
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`, {
+        method:"POST", signal:ctl.signal,
+        headers:{"Content-Type":"application/json", "x-goog-api-key":gem.key},
+        body:JSON.stringify({contents:[{role:"user", parts:[{text:prompt}]}], generationConfig:gen}),
+      });
+    } catch (e) {
+      if (why === "slow") throw {code:"g_slow"};
+      if (e?.name === "AbortError" || signal?.aborted) throw {code:"cancelled"};
+      throw {code:"blocked"};
+    }
+    if (!res.ok) {
+      let msg = ""; try { const t = await res.text(); msg = (JSON.parse(t)?.error?.message) || (JSON.parse(t)?.[0]?.error?.message) || ""; } catch {}
+      if (res.status === 400 && noThink && /think/i.test(msg)) { noThink = false; return geminiOnce(model, prompt, signal); }
+      if (res.status === 429) throw {code:"g_rate"};
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && /api.?key/i.test(msg))) throw {code:"bad_key"};
+      if (res.status === 404) throw {code:"bad_model"};
+      if (res.status >= 500) throw {code:"g_busy"};
+      throw {code:"g_other", detail:res.status + (msg ? " " + msg.slice(0, 120) : "")};
+    }
+    // read the server-sent events as they arrive
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "", text = "", blocked = false, finish = "";
+    const eat = chunk => {
+      for (const line of chunk.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        let j; try { j = JSON.parse(line.slice(5)); } catch { continue; }
+        if (j?.promptFeedback?.blockReason) blocked = true;
+        const c = j?.candidates?.[0];
+        if (c?.finishReason) finish = c.finishReason;
+        for (const part of (c?.content?.parts || [])) if (!part.thought && part.text) text += part.text;
+      }
+    };
+    try {
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        kick();
+        buf += dec.decode(value, {stream:true});
+        const cut = buf.lastIndexOf("\n\n");
+        if (cut >= 0) { eat(buf.slice(0, cut)); buf = buf.slice(cut + 2); got = text.length; }
+      }
+      eat(buf + dec.decode());
+    } catch (e) {
+      if (why === "slow") throw {code:"g_slow"};
+      if (signal?.aborted) throw {code:"cancelled"};
+      throw {code:"g_busy"};
+    }
+    if (!text.trim()) throw {code: blocked || finish === "SAFETY" ? "refused" : "empty_completion"};
+    if (finish === "MAX_TOKENS") { try { return parseLoose(text); } catch { throw {code:"g_long"}; } }
+    return parseLoose(text);
+  } finally {
+    clearTimeout(idle); clearInterval(tick); signal?.removeEventListener("abort", onAbort);
   }
-  if (!res.ok) {
-    let msg = ""; try { msg = (await res.json())?.error?.message || ""; } catch {}
-    if (res.status === 429) throw {code:"g_rate"};
-    if (res.status === 401 || res.status === 403 || (res.status === 400 && /api.?key/i.test(msg))) throw {code:"bad_key"};
-    if (res.status === 404) throw {code:"bad_model"};
-    if (res.status === 503 || res.status === 500 || res.status === 502 || res.status === 504) throw {code:"g_busy"};
-    throw {code:"g_other", detail:res.status + (msg ? " " + msg.slice(0, 120) : "")};
-  }
-  const j = await res.json();
-  const parts = j?.candidates?.[0]?.content?.parts || [];
-  const text = parts.filter(x => !x.thought).map(x => x.text || "").join("");
-  if (!text.trim()) throw {code: j?.promptFeedback?.blockReason ? "refused" : "empty_completion"};
-  return parseLoose(text);
 }
 
 /* copy & paste mode */
@@ -1296,7 +1362,7 @@ async function explainAll(){
     if (sig.aborted) break;
     $("#progText").textContent = `解説を作成中… ${i}/${jobs.length}`;
     $("#progFill").style.width = (i / jobs.length * 100) + "%";
-    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked","g_busy"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
+    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked","g_busy","g_slow"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
     i++;
   }
   $("#progFill").style.width = "100%";
