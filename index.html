@@ -1,0 +1,1562 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Python / Jupyter のコードを、行ごと・関数ごとの解説つきで読むアプリ">
+<meta name="theme-color" content="#050608" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef1f4" media="(prefers-color-scheme: light)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<title>code helper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;600;700&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+/* Layout: floating glass toolbar over a dotted work surface; file title block; overview card (2 cols on desktop); notebook cells as cards with a tinted code well; tapped line opens an annotation tray (role | process / grammar / my note); name taps open a drawer (right on desktop, bottom on phone). */
+:root{
+  --bg:#eef1f4; --dots:rgba(22,40,60,.07); --surface:#ffffff; --surface-2:#f5f7f9; --code-bg:#fafbfc;
+  --ink:#15202b; --muted:#5b6979; --faint:#8b97a4; --line:#e0e5eb;
+  --accent:#0b7f86; --accent-2:#e3f3f3; --accent-ink:#ffffff; --hl:#e8f5f5;
+  --memo:#b85f08; --memo-bg:#fff4e6; --memo-edge:#f1c48d;
+  --kw:#8b3fd9; --str:#18794e; --num:#c2410c; --com:#8b97a4; --call:#0b6bcb; --def:#c0265b; --bi:#0b7f86;
+  --danger:#b42318;
+  --shadow:0 1px 2px rgba(16,24,40,.05),0 8px 22px -10px rgba(16,24,40,.16);
+  --f-brand:"Space Grotesk","IBM Plex Sans JP",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans JP","Hiragino Sans","Yu Gothic UI","Meiryo",system-ui,sans-serif;
+  --f-code:"JetBrains Mono","Consolas","Menlo",ui-monospace,monospace;
+  --code-size:13.5px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#050608; --dots:rgba(255,255,255,.05); --surface:#0c0f13; --surface-2:#13171d; --code-bg:#080a0d;
+  --ink:#e8edf2; --muted:#98a3af; --faint:#5f6a76; --line:#1b2128;
+  --accent:#4fd1c5; --accent-2:rgba(79,209,197,.13); --accent-ink:#062a28; --hl:rgba(79,209,197,.08);
+  --memo:#f6ad55; --memo-bg:rgba(246,173,85,.10); --memo-edge:rgba(246,173,85,.38);
+  --kw:#c4a1ff; --str:#7ee2a8; --num:#ffa36b; --com:#6b7785; --call:#79b8ff; --def:#ff7eb6; --bi:#4fd1c5;
+  --danger:#ff8a80; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px -12px rgba(0,0,0,.6); color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#050608; --dots:rgba(255,255,255,.05); --surface:#0c0f13; --surface-2:#13171d; --code-bg:#080a0d;
+  --ink:#e8edf2; --muted:#98a3af; --faint:#5f6a76; --line:#1b2128;
+  --accent:#4fd1c5; --accent-2:rgba(79,209,197,.13); --accent-ink:#062a28; --hl:rgba(79,209,197,.08);
+  --memo:#f6ad55; --memo-bg:rgba(246,173,85,.10); --memo-edge:rgba(246,173,85,.38);
+  --kw:#c4a1ff; --str:#7ee2a8; --num:#ffa36b; --com:#6b7785; --call:#79b8ff; --def:#ff7eb6; --bi:#4fd1c5;
+  --danger:#ff8a80; --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px -12px rgba(0,0,0,.6); color-scheme:dark }
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg)}
+body{color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.7;background-image:radial-gradient(var(--dots) 1px,transparent 1.2px);background-size:18px 18px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
+button,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg.i{width:17px;height:17px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* toolbar */
+.bar{transition:transform .25s ease,opacity .2s ease;will-change:transform}
+.bar.hide{transform:translateY(calc(-100% - 16px));opacity:0;pointer-events:none}
+@media (prefers-reduced-motion:reduce){.bar{transition:none}}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;padding-block:10px 0;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+.bar-in{max-width:1000px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 12px;border-radius:16px;border:1px solid var(--line);background:color-mix(in srgb,var(--surface) 84%,transparent);-webkit-backdrop-filter:blur(14px) saturate(1.4);backdrop-filter:blur(14px) saturate(1.4);box-shadow:var(--shadow)}
+.brand{display:flex;align-items:center;gap:9px;margin-right:auto;min-width:0}
+.mark{width:34px;height:34px;flex:0 0 auto;display:block;border-radius:10px;filter:drop-shadow(0 3px 8px rgba(0,0,0,.25))}
+.word{font-family:var(--f-brand);font-weight:600;font-size:18px;letter-spacing:-.02em;white-space:nowrap}
+.word b{color:var(--accent);font-weight:600}
+.tools{display:flex;align-items:center;gap:4px;min-width:0}
+.sep{width:1px;height:20px;background:var(--line);margin:0 4px;flex:0 0 auto}
+.btn{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:10px;border:1px solid transparent;background:transparent;font-size:13.5px;cursor:pointer;white-space:nowrap;color:var(--ink)}
+.btn:hover{background:var(--surface-2);border-color:var(--line)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.primary:hover{background:color-mix(in srgb,var(--accent) 88%,var(--ink));border-color:transparent}
+.btn.ghost{border-color:var(--line);background:var(--surface)}
+.btn.ic{width:34px;padding:0;justify-content:center;font-family:var(--f-code);font-size:12.5px}
+.btn[aria-pressed="true"]{background:var(--accent-2);color:var(--accent)}
+.btn[disabled]{opacity:.45;cursor:default;background:transparent;border-color:transparent}
+@media (max-width:680px){
+  .bar-in{flex-wrap:wrap;padding:8px}
+  .tools{width:100%;overflow-x:auto;scrollbar-width:none}
+  .tools::-webkit-scrollbar{display:none}
+  .tools .lbl{display:none}
+  .tools .btn:not(.ic){padding:0 10px}
+  .tools .btn.primary .lbl{display:inline}
+  .tools{gap:2px}
+  .tools>*{flex:none}
+  .tools .sep{display:none}
+  .tools .btn.ic{width:27px}
+  .tools .btn.primary{padding:0 9px}
+  .tools .btn:not(.ic):not(.primary){padding:0 7px}
+}
+.progress{max-width:1000px;margin:8px auto 0;display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted);padding:6px 12px;border-radius:12px;background:color-mix(in srgb,var(--surface) 90%,transparent);border:1px solid var(--line)}
+.progress .track{flex:1;height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+.progress .fill{height:100%;background:var(--accent);width:0;transition:width .3s}
+
+/* page */
+main{max-width:1000px;margin:0 auto;padding-block:26px 140px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:20px}
+.filehead{display:flex;flex-direction:column;gap:8px;min-width:0}
+.eyebrow{font-family:var(--f-code);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.filehead h1{margin:0;font-family:var(--f-brand);font-weight:600;font-size:clamp(22px,4vw,30px);letter-spacing:-.02em;line-height:1.2;word-break:break-all;text-wrap:balance}
+.stats{display:flex;flex-wrap:wrap;gap:6px}
+.stat{font-family:var(--f-code);font-size:12px;padding:3px 10px;border-radius:99px;background:var(--surface);border:1px solid var(--line);color:var(--muted);font-variant-numeric:tabular-nums}
+.stat b{color:var(--ink);font-weight:600}
+.stat.memo b{color:var(--memo)}
+.notice{font-size:13px;color:var(--muted);max-width:75ch}
+.notice strong{color:var(--ink);font-weight:600}
+
+.overview{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:20px 22px;box-shadow:var(--shadow);display:grid;gap:18px 32px}
+@media (min-width:760px){.overview.full{grid-template-columns:1.25fr 1fr}}
+.overview .col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.overview h2{margin:0;font-family:var(--f-brand);font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.overview .purpose{margin:0;font-size:16px;line-height:1.75;max-width:62ch}
+.flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;counter-reset:f}
+.flow li{counter-increment:f;display:grid;grid-template-columns:26px 1fr;gap:10px;font-size:14px}
+.flow li::before{content:counter(f);font-family:var(--f-code);font-size:11.5px;font-weight:600;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--accent-2);color:var(--accent);margin-top:2px}
+.terms{display:flex;flex-direction:column;gap:8px;margin:0}
+.terms div{display:grid;grid-template-columns:minmax(80px,auto) 1fr;gap:10px;align-items:baseline;min-width:0;padding-bottom:8px;border-bottom:1px dashed var(--line)}
+.terms div:last-child{border-bottom:none;padding-bottom:0}
+.terms dt{font-family:var(--f-code);font-size:12.5px;font-weight:600;color:var(--def);word-break:break-all}
+.terms dd{margin:0;font-size:13.5px;color:var(--muted)}
+.sub{font-family:var(--f-code);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12.5px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend kbd{font-family:var(--f-code);font-size:11.5px;padding:1px 7px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+
+.md{padding:0 4px;max-width:72ch;min-width:0}
+.md h1,.md h2,.md h3{font-family:var(--f-brand);letter-spacing:-.015em;line-height:1.3;text-wrap:balance;margin:.5em 0 .3em}
+.md h1{font-size:22px}.md h2{font-size:18px}.md h3{font-size:16px}
+.md p{margin:.4em 0}
+.md code{font-family:var(--f-code);font-size:.88em;background:var(--surface);border:1px solid var(--line);padding:1px 5px;border-radius:5px}
+.md pre{overflow-x:auto;background:var(--surface);border:1px solid var(--line);padding:10px;border-radius:10px}
+.md img{max-width:100%}
+
+/* cells */
+.cell{background:var(--surface);border:1px solid var(--line);border-radius:18px;min-width:0;overflow:hidden;box-shadow:var(--shadow)}
+.cell-h{display:flex;flex-direction:column;gap:8px;padding:12px 16px}
+.cell-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.cell-no{font-family:var(--f-code);font-size:11.5px;font-weight:600;color:var(--accent);background:var(--accent-2);padding:2px 9px;border-radius:7px;font-variant-numeric:tabular-nums}
+.cell-meta{font-family:var(--f-code);font-size:11.5px;color:var(--faint)}
+.cell-acts{margin-left:auto;display:flex;gap:4px}
+.cell-acts .btn{height:28px;font-size:12.5px;padding:0 10px}
+.cell-sum{margin:0;font-size:14px;color:var(--ink);max-width:75ch}
+.cell-sum:empty,.cell-memo:empty{display:none}
+
+.code{overflow-x:auto;font-family:var(--f-code);font-size:var(--code-size);line-height:1.65;padding-block:8px;background:var(--code-bg);border-top:1px solid var(--line)}
+.rows{min-width:100%;width:max-content}
+.code.wrap .rows{width:auto}
+.row{display:flex;align-items:flex-start}
+.row:hover{background:color-mix(in srgb,var(--surface-2) 70%,transparent)}
+.row.on{background:var(--hl)}
+.lno{position:sticky;left:0;flex:0 0 auto;width:4.2em;display:flex;align-items:center;justify-content:flex-end;gap:4px;padding:0 .8em 0 0;border:none;background:var(--code-bg);color:var(--faint);font:inherit;font-size:.84em;line-height:1.96;cursor:pointer;margin-right:.6em;user-select:none;font-variant-numeric:tabular-nums}
+.row:hover .lno{background:color-mix(in srgb,var(--surface-2) 70%,var(--code-bg))}
+.row.on .lno{background:var(--hl);color:var(--accent);font-weight:600;box-shadow:inset 3px 0 0 var(--accent)}
+.lno:hover{color:var(--accent)}
+.lno .dot,.lno .mm{width:5px;height:5px;border-radius:50%;flex:0 0 auto}
+.lno .mm{display:none;background:var(--memo);border-radius:2px;width:6px;height:6px}
+.lno.has .dot{background:color-mix(in srgb,var(--accent) 55%,transparent)}
+.lno.memo .mm{display:block}
+.src{white-space:pre;padding-right:18px;min-height:1.65em;flex:1 1 auto}
+.code.wrap .src{white-space:pre-wrap;word-break:break-all;min-width:0}
+.t-kw{color:var(--kw);font-weight:600}.t-str{color:var(--str)}.t-num{color:var(--num)}.t-com{color:var(--com);font-style:italic}
+.t-call{color:var(--call)}.t-def{color:var(--def);font-weight:600}.t-bi{color:var(--bi)}.t-mod{color:var(--bi)}
+.tap{cursor:pointer;border-radius:4px;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 30%,transparent);text-underline-offset:3px;text-decoration-thickness:1px}
+.tap:hover,.tap:focus-visible{background:color-mix(in srgb,currentColor 12%,transparent);text-decoration-color:currentColor}
+
+.note-row{position:sticky;left:0;display:flex;gap:8px;align-items:flex-start;margin:2px 14px 6px calc(4.8em);padding:6px 10px;border-radius:10px;background:var(--memo-bg);border:1px solid var(--memo-edge);color:var(--ink);font-family:var(--f-body);font-size:13px;line-height:1.6;cursor:pointer;white-space:pre-wrap;word-break:break-word}
+.note-row svg{color:var(--memo);margin-top:2px;width:14px;height:14px}
+
+/* annotation tray */
+.xp{position:sticky;left:0;font-family:var(--f-body);font-size:14px;line-height:1.7;background:var(--hl);border-bottom:1px solid var(--line);padding:4px 16px 14px calc(4.8em);display:flex;flex-direction:column;gap:10px;white-space:normal}
+@media (max-width:560px){.xp{padding-left:12px;padding-right:12px}.note-row{margin-left:12px;margin-right:12px}}
+.xp-grid{display:grid;grid-template-columns:1fr;gap:10px}
+@media (min-width:700px){.xp-grid{grid-template-columns:1fr 1fr}}
+.xc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 14px;min-width:0}
+.xc.wide{grid-column:1/-1}
+.xc.gram{background:color-mix(in srgb,var(--kw) 6%,var(--surface));border-color:color-mix(in srgb,var(--kw) 22%,var(--line))}
+.xc.mine{background:var(--memo-bg);border-color:var(--memo-edge)}
+.xc .k{display:flex;align-items:center;gap:6px;font-family:var(--f-code);font-size:10.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-weight:600;margin-bottom:2px}
+.xc.gram .k{color:var(--kw)}
+.xc.mine .k{color:var(--memo)}
+.xc p{margin:0;max-width:65ch}
+.xc .mtext{white-space:pre-wrap;word-break:break-word}
+.xp code,.sheet code,.overview code,.cell-sum code,.xc code{font-family:var(--f-code);font-size:.88em;background:var(--surface-2);border:1px solid var(--line);padding:0 5px;border-radius:5px}
+.xp-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:11px;background:var(--surface);padding:2px}
+.seg .btn{height:30px;font-size:13px;padding:0 12px;border-radius:9px}
+.err{color:var(--danger)}
+.thinking{color:var(--muted);display:flex;align-items:center;gap:8px}
+.thinking::before{content:"";width:13px;height:13px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.thinking::before{animation:none}.progress .fill{transition:none}}
+
+/* memo editor */
+.medit{display:flex;flex-direction:column;gap:8px}
+.medit textarea{width:100%;min-height:84px;border:1px solid var(--memo-edge);border-radius:10px;padding:8px 10px;background:var(--surface);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.6;resize:vertical}
+.medit .row-btns{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.medit .hint{font-size:12px;color:var(--faint);margin-left:auto}
+.addmemo{display:inline-flex;align-items:center;gap:6px;border:1px dashed var(--memo-edge);background:transparent;color:var(--memo);border-radius:10px;height:32px;padding:0 12px;font-size:13px;cursor:pointer}
+.addmemo:hover{background:var(--memo-bg)}
+.cmemo{background:var(--memo-bg);border:1px solid var(--memo-edge);border-radius:12px;padding:8px 12px;font-size:13.5px;white-space:pre-wrap;word-break:break-word;cursor:pointer}
+.cmemo .k{font-family:var(--f-code);font-size:10.5px;letter-spacing:.14em;color:var(--memo);font-weight:600;display:block}
+
+.outs{border-top:1px solid var(--line);padding:10px 16px 12px;display:flex;flex-direction:column;gap:6px}
+.outs pre{margin:0;font-family:var(--f-code);font-size:12.5px;white-space:pre-wrap;word-break:break-all;max-height:260px;overflow:auto;color:var(--muted)}
+.outs pre.err{color:var(--danger)}
+.outs img{max-width:100%;height:auto;background:#fff;border-radius:8px}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(8,12,18,.42);z-index:40;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;margin:0 auto;max-width:680px;max-height:80vh;overflow:auto;background:var(--surface);border-radius:20px 20px 0 0;border:1px solid var(--line);border-bottom:none;padding:12px max(20px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(20px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px;box-shadow:0 -12px 40px rgba(0,0,0,.22)}
+.sheet .grab{width:42px;height:4px;border-radius:2px;background:var(--line);align-self:center}
+@media (min-width:900px){
+  .sheet{left:auto;right:max(14px,env(safe-area-inset-right,0px));top:calc(env(safe-area-inset-top,0px) + 14px);bottom:14px;width:430px;max-height:none;margin:0;border-radius:20px;border-bottom:1px solid var(--line);padding:20px 22px}
+  .sheet .grab{display:none}
+}
+.sheet-h{display:flex;align-items:flex-start;gap:10px}
+.sheet-h h3{margin:0;font-family:var(--f-code);font-size:18px;font-weight:600;word-break:break-all;flex:1;min-width:0;line-height:1.35}
+.chip{font-family:var(--f-code);font-size:11px;border-radius:99px;padding:2px 10px;color:var(--accent);background:var(--accent-2);white-space:nowrap;margin-top:3px}
+.sig{font-family:var(--f-code);font-size:13px;background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;overflow-x:auto;white-space:pre}
+.sheet p{margin:0;max-width:65ch}
+.sheet .k{font-family:var(--f-code);font-size:10.5px;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.args{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.args li{display:grid;grid-template-columns:minmax(60px,auto) 1fr;gap:10px;font-size:14px}
+.args b{font-family:var(--f-code);font-weight:600;font-size:12.5px;color:var(--def)}
+.ai-box{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.close{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:9px;display:grid;place-items:center;cursor:pointer;color:var(--muted);flex:0 0 auto}
+.close:hover{color:var(--ink)}
+.paste{display:flex;flex-direction:column;gap:10px}
+.scrim.top{z-index:50}.sheet.top{z-index:51}
+.paste textarea.short{min-height:18vh}
+.seg-eng{display:flex;flex-direction:column;gap:8px}
+.eng{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer}
+.eng:has(input:checked){border-color:var(--accent);background:var(--accent-2)}
+.eng input{margin-top:5px;accent-color:var(--accent);flex:none}
+.eng b{display:block;font-size:14px}
+.eng small,.fld small,.steps small{color:var(--muted);font-size:12.5px;line-height:1.55;display:block}
+.fld{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px}
+.fld input{height:40px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:var(--code-bg);color:var(--ink);font-family:var(--f-code);font-size:14px;width:100%}
+.fld a,.steps a{color:var(--accent)}
+.steps{margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:14px}
+.steps li{display:flex;flex-direction:column;gap:8px}
+.steps li::marker{font-family:var(--f-code);color:var(--accent);font-weight:600}
+.steps details summary{font-size:13px;color:var(--muted);cursor:pointer}
+.paste textarea{width:100%;min-height:42vh;font-family:var(--f-code);font-size:13px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--code-bg);color:var(--ink);resize:vertical}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <div class="brand">
+      <img class="mark" alt="" src="icons/icon-192.png">
+      <span class="word">code<b>.</b>helper</span>
+    </div>
+    <nav class="tools" aria-label="操作">
+      <label class="btn primary" for="file"><svg class="i" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg><span class="lbl">開く</span></label>
+      <input id="file" type="file" accept=".py,.ipynb,.txt,text/x-python,application/json" hidden>
+      <button class="btn" id="pasteBtn" type="button" title="コードを貼り付け"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2M16 4h2a2 2 0 0 1 2 2v2M11 14h10"/><path d="m17 10 4 4-4 4"/></svg><span class="lbl">貼り付け</span></button>
+      <button class="btn" id="allBtn" type="button" title="全部まとめて解説"><svg class="i" viewBox="0 0 24 24"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96l-6.14 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/><path d="M20 3v4M22 5h-4"/></svg><span class="lbl">全部解説</span></button>
+      <button class="btn" id="aiBtn" type="button" title="解説に使う AI を選ぶ"><svg class="i" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg><span class="lbl" id="aiLbl">Claude</span></button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="btn ic" id="notesBtn" type="button" aria-pressed="true" title="メモをコードの中に表示" aria-label="メモをコードの中に表示"><svg class="i" viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/><path d="M7 12h6M7 16h8"/></svg></button>
+      <button class="btn ic" id="wrapBtn" type="button" aria-pressed="true" title="長い行を折り返す" aria-label="長い行を折り返す"><svg class="i" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><path d="m16 16-2 2 2 2"/><path d="M3 18h7"/></svg></button>
+      <button class="btn ic" id="smaller" type="button" aria-label="文字を小さく" title="文字を小さく"><svg class="i" viewBox="0 0 24 24"><path d="M3 7V5h11v2M8.5 5v14M6.5 19h4"/><path d="M16 14h6"/></svg></button>
+      <button class="btn ic" id="bigger" type="button" aria-label="文字を大きく" title="文字を大きく"><svg class="i" viewBox="0 0 24 24"><path d="M3 7V5h11v2M8.5 5v14M6.5 19h4"/><path d="M16 14h6M19 11v6"/></svg></button>
+      <button class="btn ic" id="themeBtn" type="button" aria-label="表示モード" title="表示モード"></button>
+    </nav>
+  </div>
+  <div class="progress" id="prog" hidden>
+    <span id="progText">解説を作成中…</span>
+    <div class="track"><div class="fill" id="progFill"></div></div>
+    <button class="btn ghost" id="stopBtn" type="button" style="height:28px">止める</button>
+  </div>
+</header>
+
+<main>
+  <section class="filehead">
+    <div class="eyebrow" id="kind">Notebook</div>
+    <h1 id="fname"></h1>
+    <div class="stats" id="stats"></div>
+    <div class="notice" id="notice"></div>
+  </section>
+  <section class="overview" id="overview" aria-label="このコードの概要"></section>
+  <div class="legend" aria-label="使い方">
+    <span><kbd>12</kbd>行番号を押す → 役割・文法・自分のメモ</span>
+    <span><kbd class="t-call">name</kbd>下線の名前を押す → 関数・文法の説明</span>
+  </div>
+  <div id="doc"></div>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></aside>
+<div class="scrim top" id="mscrim" hidden></div>
+<aside class="sheet top" id="mdlg" hidden role="dialog" aria-modal="true" aria-labelledby="mTitle"></aside>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const inl = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+const store = {
+  get(k){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } },
+};
+
+/* ───────── Dictionary (offline) ───────── */
+const D = {
+// builtins
+print:["print(値1, 値2, ..., sep=' ', end='\\n')","値を画面に表示します。途中経過の確認によく使います。f文字列と組み合わせると読みやすく整形できます。"],
+len:["len(x)","リスト・文字列・辞書・配列などの長さ（要素数）を返します。NumPy配列では最初の次元の大きさです。"],
+range:["range(終わり)\nrange(始め, 終わり, 刻み)","整数の並びを作ります。終わりの値は含みません。for i in range(10): で「0〜9の10回くり返す」になります。"],
+enumerate:["enumerate(並び, start=0)","要素と番号（0, 1, 2…）を組にして取り出します。for i, x in enumerate(xs): の形で使います。"],
+zip:["zip(a, b, ...)","複数の並びから1つずつ同時に取り出して組にします。for a, b in zip(xs, ys): の形で使います。"],
+open:["open(パス, モード='r', encoding=None)","ファイルを開きます。'r'読む、'w'書く（上書き）、'a'追記、'b'を付けるとバイナリ。with open(...) as f: の形だと使い終わりで自動的に閉じます。"],
+sorted:["sorted(並び, key=None, reverse=False)","並べ替えた新しいリストを返します。元のデータは変わりません。key に関数を渡すと並べ替えの基準を変えられます。"],
+sum:["sum(並び, start=0)","数の合計を返します。NumPy配列なら np.sum や 配列.sum() の方が速いです。"],
+min:["min(並び) / min(a, b, ...)","最小値を返します。"],
+max:["max(並び) / max(a, b, ...)","最大値を返します。"],
+abs:["abs(x)","絶対値を返します。"],
+round:["round(x, 桁数)","四捨五入します（偶数丸め）。"],
+int:["int(x)","整数に変換します。小数は切り捨て、文字列 '12' は 12 になります。"],
+float:["float(x)","小数（浮動小数点数）に変換します。float('nan') や float('inf') で特殊な値も作れます。"],
+str:["str(x)","文字列に変換します。"],
+bool:["bool(x)","True/False に変換します。0、空のリスト、None などは False です。"],
+list:["list(並び)","リストを作ります。list(range(3)) → [0, 1, 2]。"],
+dict:["dict(キー=値, ...)","辞書（キーと値の対応表）を作ります。{'a': 1} と書くのと同じです。"],
+set:["set(並び)","重複のない集まり（集合）を作ります。"],
+tuple:["tuple(並び)","変更できない並び（タプル）を作ります。"],
+isinstance:["isinstance(物, 型)","物がその型かどうかを True/False で返します。"],
+type:["type(x)","x の型を返します。"],
+super:["super()","親クラスのメソッドを呼ぶときに使います。クラスの __init__ の中で super().__init__() と書き、親クラス側の初期化を先に済ませるのが定番です。"],
+map:["map(関数, 並び)","並びの各要素に関数を当てた結果を順に返します。"],
+filter:["filter(関数, 並び)","関数が True を返した要素だけを残します。"],
+any:["any(並び)","1つでも True があれば True。"],
+all:["all(並び)","すべて True なら True。"],
+reversed:["reversed(並び)","逆順に取り出します。"],
+getattr:["getattr(物, '名前', 既定値)","名前（文字列）で属性を取り出します。"],
+hasattr:["hasattr(物, '名前')","その属性を持っているかを返します。"],
+setattr:["setattr(物, '名前', 値)","名前（文字列）で属性に値を入れます。"],
+next:["next(イテレータ)","次の要素を1つ取り出します。"],
+iter:["iter(並び)","並びから1つずつ取り出す道具（イテレータ）を作ります。"],
+input:["input('表示文')","キーボード入力を受け取ります。"],
+Exception:["Exception('メッセージ')","一般的なエラーの型です。raise と一緒に使います。"],
+ValueError:["ValueError('メッセージ')","値がおかしいときのエラーの型です。"],
+RuntimeError:["RuntimeError('メッセージ')","実行中の問題を表すエラーの型です。"],
+// python methods
+".append":["リスト.append(要素)","リストの末尾に要素を1つ足します。戻り値は None です。"],
+".extend":["リスト.extend(並び)","リストの末尾に並びの要素をまとめて足します。"],
+".items":["辞書.items()","辞書のキーと値の組を取り出します。for k, v in d.items(): の形で使います。"],
+".keys":["辞書.keys()","辞書のキーを取り出します。"],
+".values":["辞書.values()","辞書の値を取り出します。"],
+".get":["辞書.get(キー, 既定値)","キーの値を返します。キーが無ければ既定値（省略時 None）を返し、エラーになりません。"],
+".join":["'区切り'.join(文字列の並び)","文字列をつなげます。', '.join(['a','b']) → 'a, b'。"],
+".split":["文字列.split(区切り)","文字列を区切って分け、リストにします。"],
+".strip":["文字列.strip()","前後の空白や改行を取り除きます。"],
+".replace":["文字列.replace(古, 新)","文字列の一部を置き換えます。"],
+".format":["'…{}…'.format(値)","{} に値を埋め込んだ文字列を作ります。今は f文字列 を使うことが多いです。"],
+".startswith":["文字列.startswith(先頭)","指定の文字列で始まるかを返します。"],
+".endswith":["文字列.endswith(末尾)","指定の文字列で終わるかを返します。"],
+".pop":["リスト.pop(位置) / 辞書.pop(キー)","要素を取り出して消します。"],
+".update":["辞書.update(別の辞書)","辞書に別の辞書の中身を書き足します（同じキーは上書き）。"],
+".copy":["x.copy()","コピーを作ります。元を変えずに編集したいときに使います。"],
+// numpy
+"numpy":["import numpy as np","数値計算ライブラリ。配列（ndarray）をまとめて高速に計算できます。"],
+"numpy.array":["np.array(リスト, dtype=None)","リストなどから NumPy 配列を作ります。"],
+"numpy.asarray":["np.asarray(x)","配列に変換します。すでに配列ならコピーしません。"],
+"numpy.zeros":["np.zeros(形, dtype=float)","0で埋めた配列を作ります。形は (行, 列) のようにタプルで渡します。"],
+"numpy.ones":["np.ones(形)","1で埋めた配列を作ります。"],
+"numpy.empty":["np.empty(形)","中身を初期化しない配列を作ります（値はでたらめ）。あとで全部埋める前提で使います。"],
+"numpy.zeros_like":["np.zeros_like(配列)","同じ形・型で0の配列を作ります。"],
+"numpy.ones_like":["np.ones_like(配列)","同じ形・型で1の配列を作ります。"],
+"numpy.full":["np.full(形, 値)","指定の値で埋めた配列を作ります。"],
+"numpy.arange":["np.arange(始め, 終わり, 刻み)","等間隔の数の配列を作ります。終わりは含みません（range の配列版）。"],
+"numpy.linspace":["np.linspace(始め, 終わり, 個数)","始めから終わりまでを等間隔に個数分に分けた配列を作ります。終わりの値も含みます。"],
+"numpy.meshgrid":["X, Y = np.meshgrid(x, y)","1次元の x, y から2次元の格子座標を作ります。"],
+"numpy.mean":["np.mean(配列, axis=None)","平均を計算します。axis=0 なら縦方向（行をまたいで）、axis=1 なら横方向の平均です。"],
+"numpy.std":["np.std(配列, axis=None)","標準偏差を計算します。"],
+"numpy.var":["np.var(配列, axis=None)","分散を計算します。"],
+"numpy.sum":["np.sum(配列, axis=None)","合計を計算します。"],
+"numpy.max":["np.max(配列, axis=None)","最大値を返します。"],
+"numpy.min":["np.min(配列, axis=None)","最小値を返します。"],
+"numpy.argmax":["np.argmax(配列, axis=None)","最大値が入っている位置（番号）を返します。"],
+"numpy.argmin":["np.argmin(配列, axis=None)","最小値が入っている位置を返します。"],
+"numpy.sqrt":["np.sqrt(x)","平方根を要素ごとに計算します。"],
+"numpy.exp":["np.exp(x)","e の x 乗を要素ごとに計算します。"],
+"numpy.log":["np.log(x)","自然対数を要素ごとに計算します。log10 は常用対数です。"],
+"numpy.abs":["np.abs(x)","絶対値を要素ごとに計算します。"],
+"numpy.sin":["np.sin(x)","sin を要素ごとに計算します（x はラジアン）。"],
+"numpy.cos":["np.cos(x)","cos を要素ごとに計算します（x はラジアン）。"],
+"numpy.where":["np.where(条件, A, B)","条件が True の場所は A、False の場所は B を選んだ配列を返します。条件だけ渡すと True の位置を返します。"],
+"numpy.clip":["np.clip(配列, 下限, 上限)","値を下限〜上限の範囲に収めます。"],
+"numpy.concatenate":["np.concatenate([a, b], axis=0)","配列を既存の軸方向につなげます。"],
+"numpy.stack":["np.stack([a, b], axis=0)","配列を新しい軸を作って積み重ねます（次元が1つ増えます）。"],
+"numpy.reshape":["np.reshape(配列, 新しい形)","要素数を変えずに形を変えます。-1 を書いた次元は自動で決まります。"],
+"numpy.transpose":["np.transpose(配列, 軸の順)","軸の順番を入れ替えます。"],
+"numpy.load":["np.load('ファイル.npy')","保存した配列を読み込みます。.npz なら名前付きで取り出せます。"],
+"numpy.save":["np.save('ファイル.npy', 配列)","配列をファイルに保存します。"],
+"numpy.savez":["np.savez('ファイル.npz', 名前=配列, ...)","複数の配列を名前付きで1ファイルに保存します。"],
+"numpy.convolve":["np.convolve(a, v, mode='full')","1次元の畳み込みを計算します。mode='same' で元と同じ長さ、'valid' で端を除いた長さになります。"],
+"numpy.gradient":["np.gradient(配列, 間隔)","差分で微分（勾配）を近似します。"],
+"numpy.diff":["np.diff(配列)","隣り合う要素の差を返します（長さが1減ります）。"],
+"numpy.cumsum":["np.cumsum(配列)","累積和を返します。"],
+"numpy.percentile":["np.percentile(配列, q)","q パーセント点を返します（q=50 で中央値）。"],
+"numpy.median":["np.median(配列)","中央値を返します。"],
+"numpy.isnan":["np.isnan(x)","NaN（数でない値）かどうかを要素ごとに返します。"],
+"numpy.nan_to_num":["np.nan_to_num(x)","NaN や無限大をふつうの数に置き換えます。"],
+"numpy.dot":["np.dot(a, b)","内積・行列の積を計算します。"],
+"numpy.matmul":["np.matmul(a, b)","行列の積を計算します。a @ b と同じです。"],
+"numpy.einsum":["np.einsum('ij,jk->ik', a, b)","添字の書き方で掛け算と和を指定する計算です。'ij,jk->ik' は行列の積を表します。"],
+"numpy.random.default_rng":["rng = np.random.default_rng(シード)","乱数生成器を作ります。シードを決めると毎回同じ乱数になり、結果を再現できます。"],
+"numpy.random.seed":["np.random.seed(シード)","古い書き方の乱数シード設定です。"],
+"numpy.random.randn":["np.random.randn(形...)","標準正規分布（平均0・標準偏差1）の乱数を作ります。"],
+"numpy.random.rand":["np.random.rand(形...)","0以上1未満の一様乱数を作ります。"],
+"numpy.fft.fft":["np.fft.fft(x)","高速フーリエ変換。信号を周波数成分に分解します。"],
+"numpy.fft.rfft":["np.fft.rfft(x)","実数信号用のフーリエ変換（正の周波数だけ）。"],
+"numpy.fft.fftfreq":["np.fft.fftfreq(n, d)","fft の各成分に対応する周波数を返します。d はサンプリング間隔。"],
+".standard_normal":["rng.standard_normal(形)","標準正規分布（平均0・標準偏差1）の乱数を作ります。"],
+".normal":["rng.normal(平均, 標準偏差, 形)","正規分布の乱数を作ります。"],
+".uniform":["rng.uniform(下限, 上限, 形)","一様分布の乱数を作ります。"],
+".integers":["rng.integers(下限, 上限, 形)","整数の乱数を作ります（上限は含まない）。"],
+".choice":["rng.choice(並び, 個数, replace=True)","並びからランダムに選びます。"],
+".permutation":["rng.permutation(n または 並び)","ランダムに並べ替えます。"],
+".mean":["配列.mean(axis=None)","平均を計算します。axis で方向を指定できます（PyTorchでは dim）。"],
+".std":["配列.std(axis=None)","標準偏差を計算します。"],
+".sum":["配列.sum(axis=None)","合計を計算します。"],
+".max":["配列.max(axis=None)","最大値を返します。"],
+".min":["配列.min(axis=None)","最小値を返します。"],
+".reshape":["配列.reshape(新しい形)","要素数を変えずに形を変えます。-1 は「残りから自動で決める」の意味です。"],
+".astype":["配列.astype(型)","配列の型を変えます（例: np.float32）。"],
+".flatten":["配列.flatten()","1次元に並べ直したコピーを返します。"],
+".transpose":["配列.transpose(軸...)","軸の順番を入れ替えます。"],
+".squeeze":["x.squeeze(軸)","大きさ1の次元を取り除きます。"],
+".tolist":["配列.tolist()","Python のリストに変換します。"],
+// torch
+"torch":["import torch","深層学習ライブラリ PyTorch。GPU で動くテンソル（多次元配列）と自動微分を提供します。"],
+"torch.tensor":["torch.tensor(データ, dtype=None, device=None)","テンソル（PyTorch の配列）を作ります。"],
+"torch.from_numpy":["torch.from_numpy(配列)","NumPy 配列をテンソルに変換します（メモリを共有）。"],
+"torch.zeros":["torch.zeros(形)","0で埋めたテンソルを作ります。"],
+"torch.ones":["torch.ones(形)","1で埋めたテンソルを作ります。"],
+"torch.randn":["torch.randn(形)","標準正規分布の乱数テンソルを作ります。"],
+"torch.cat":["torch.cat([a, b], dim=0)","テンソルを既存の次元方向につなげます。"],
+"torch.stack":["torch.stack([a, b], dim=0)","新しい次元を作って積み重ねます。"],
+"torch.no_grad":["with torch.no_grad():","この中では勾配を記録しません。評価や推論のときに使い、メモリと時間を節約します。"],
+"torch.manual_seed":["torch.manual_seed(シード)","乱数のシードを決め、結果を再現できるようにします。"],
+"torch.save":["torch.save(物, 'パス')","モデルの重みなどをファイルに保存します。"],
+"torch.load":["torch.load('パス', map_location=...)","保存したものを読み込みます。"],
+"torch.device":["torch.device('cuda' または 'cpu')","計算に使う装置（GPU か CPU か）を表します。"],
+"torch.cuda.is_available":["torch.cuda.is_available()","GPU が使えるかを返します。"],
+"torch.nn":["import torch.nn as nn","ニューラルネットの部品（層・損失関数など）がまとまったモジュールです。"],
+"torch.nn.Module":["class 名前(nn.Module):","自分のネットワークを作るときの親クラスです。__init__ で層を用意し、forward に計算の流れを書きます。"],
+"torch.nn.Linear":["nn.Linear(入力の数, 出力の数)","全結合層。y = Wx + b を計算します。"],
+"torch.nn.Conv2d":["nn.Conv2d(入力ch, 出力ch, kernel_size, padding=0)","2次元の畳み込み層。画像や2次元場の局所的なパターンを捉えます。"],
+"torch.nn.ReLU":["nn.ReLU()","活性化関数。負の値を0にします。"],
+"torch.nn.GELU":["nn.GELU()","なめらかな活性化関数。"],
+"torch.nn.Sequential":["nn.Sequential(層1, 層2, ...)","層を順番につないで1つの部品にします。"],
+"torch.nn.MSELoss":["nn.MSELoss()","平均二乗誤差の損失関数。"],
+"torch.nn.functional.mse_loss":["F.mse_loss(予測, 正解)","平均二乗誤差を計算します。"],
+"torch.nn.functional.interpolate":["F.interpolate(x, size=..., mode='bilinear')","テンソルを拡大・縮小（補間）します。"],
+"torch.nn.functional.pad":["F.pad(x, (左, 右, 上, 下))","テンソルの端に値を詰め足します。"],
+"torch.optim.Adam":["torch.optim.Adam(model.parameters(), lr=学習率)","よく使われる最適化手法。重みの更新方法を決めます。"],
+"torch.utils.data.DataLoader":["DataLoader(データセット, batch_size, shuffle)","データをミニバッチに分けて順に取り出す道具です。"],
+"torch.utils.data.Dataset":["class 名前(Dataset):","自分のデータセットを作る親クラス。__len__ と __getitem__ を書きます。"],
+".zero_grad":["optimizer.zero_grad()","前回の勾配を0に戻します。backward の前に必ず呼びます（勾配は足し込まれるため）。"],
+".backward":["loss.backward()","損失から各重みの勾配を自動で計算します（誤差逆伝播）。"],
+".step":["optimizer.step()","計算した勾配を使って重みを1回更新します。"],
+".parameters":["model.parameters()","モデルの学習する重みをすべて取り出します。最適化手法に渡します。"],
+".train":["model.train()","学習モードに切り替えます（Dropout などが有効になる）。"],
+".eval":["model.eval()","評価モードに切り替えます。推論の前に呼びます。"],
+".to":["x.to(device) / x.to(dtype)","テンソルやモデルを GPU/CPU に移す、または型を変えます。"],
+".cpu":["x.cpu()","テンソルを CPU に移します。"],
+".cuda":["x.cuda()","テンソルを GPU に移します。"],
+".detach":["x.detach()","勾配の記録から切り離したテンソルを返します。"],
+".numpy":["x.numpy()","テンソルを NumPy 配列に変換します（CPU 上・勾配なしである必要あり）。"],
+".item":["x.item()","要素1つのテンソルから Python の数を取り出します。"],
+".unsqueeze":["x.unsqueeze(dim)","指定位置に大きさ1の次元を足します。"],
+".view":["x.view(新しい形)","テンソルの形を変えます（reshape とほぼ同じ）。"],
+".permute":["x.permute(軸の順...)","テンソルの軸の順番を入れ替えます。"],
+".size":["x.size(dim)","テンソルの形（大きさ）を返します。"],
+".state_dict":["model.state_dict()","モデルの重みを辞書として取り出します。保存に使います。"],
+".load_state_dict":["model.load_state_dict(辞書)","保存した重みをモデルに読み込みます。"],
+// matplotlib
+"matplotlib.pyplot":["import matplotlib.pyplot as plt","グラフを描くライブラリです。"],
+"matplotlib.pyplot.figure":["plt.figure(figsize=(幅, 高さ))","新しい図を作ります。大きさはインチ単位です。"],
+"matplotlib.pyplot.subplots":["fig, ax = plt.subplots(行数, 列数, figsize=(幅, 高さ))","図（fig）と描き込む枠（ax）をまとめて作ります。複数枠なら ax は配列になります。"],
+"matplotlib.pyplot.plot":["plt.plot(x, y, label=...)","折れ線を描きます。"],
+"matplotlib.pyplot.scatter":["plt.scatter(x, y)","散布図を描きます。"],
+"matplotlib.pyplot.imshow":["plt.imshow(2次元配列, cmap=...)","2次元配列を色の濃淡で画像として描きます。"],
+"matplotlib.pyplot.colorbar":["plt.colorbar()","色と値の対応を示すカラーバーを付けます。"],
+"matplotlib.pyplot.xlabel":["plt.xlabel('名前')","横軸のラベルを付けます。"],
+"matplotlib.pyplot.ylabel":["plt.ylabel('名前')","縦軸のラベルを付けます。"],
+"matplotlib.pyplot.title":["plt.title('タイトル')","図のタイトルを付けます。"],
+"matplotlib.pyplot.legend":["plt.legend()","凡例（線の名前の一覧）を表示します。"],
+"matplotlib.pyplot.savefig":["plt.savefig('ファイル名.png', dpi=...)","図を画像ファイルに保存します。"],
+"matplotlib.pyplot.show":["plt.show()","図を画面に表示します。"],
+"matplotlib.pyplot.close":["plt.close(fig)","図を閉じてメモリを解放します。たくさん図を作るときに必要です。"],
+"matplotlib.pyplot.tight_layout":["plt.tight_layout()","ラベルが重ならないよう余白を自動調整します。"],
+".plot":["ax.plot(x, y, label=...)","枠（ax）に折れ線を描きます。"],
+".scatter":["ax.scatter(x, y)","枠に散布図を描きます。"],
+".imshow":["ax.imshow(2次元配列, cmap=...)","枠に2次元配列を画像として描きます。"],
+".set_xlabel":["ax.set_xlabel('名前')","横軸のラベルを付けます。"],
+".set_ylabel":["ax.set_ylabel('名前')","縦軸のラベルを付けます。"],
+".set_title":["ax.set_title('タイトル')","枠のタイトルを付けます。"],
+".set_xlim":["ax.set_xlim(下限, 上限)","横軸の範囲を決めます。"],
+".set_ylim":["ax.set_ylim(下限, 上限)","縦軸の範囲を決めます。"],
+".legend":["ax.legend()","凡例（label で付けた名前の一覧）を表示します。"],
+".savefig":["fig.savefig('ファイル名.png', dpi=...)","図を画像ファイルに保存します。dpi は解像度です。"],
+".colorbar":["fig.colorbar(画像, ax=ax)","カラーバーを付けます。"],
+".tight_layout":["fig.tight_layout()","余白を自動調整します。"],
+// os / path / misc
+"os":["import os","ファイルやフォルダを扱う標準ライブラリです。"],
+"os.path.join":["os.path.join('フォルダ', 'ファイル')","パスをOSに合った区切り文字でつなぎます。"],
+"os.path.exists":["os.path.exists(パス)","そのファイルやフォルダがあるかを返します。"],
+"os.makedirs":["os.makedirs(パス, exist_ok=True)","フォルダを作ります。exist_ok=True ならすでにあってもエラーにしません。"],
+"pathlib.Path":["Path('パス')","パスを扱う道具。Path('a') / 'b.txt' のように / でつなげます。"],
+".mkdir":["path.mkdir(parents=True, exist_ok=True)","フォルダを作ります。"],
+".exists":["path.exists()","そのパスがあるかを返します。"],
+"glob.glob":["glob.glob('パターン')","パターン（*.npy など）に合うファイル名の一覧を返します。"],
+"json.load":["json.load(ファイル)","JSON ファイルを読み込んで辞書などにします。"],
+"json.dump":["json.dump(物, ファイル, indent=2)","辞書などを JSON 形式でファイルに書きます。"],
+"time.time":["time.time()","現在時刻を秒で返します。差を取って処理時間を測るのに使います。"],
+"argparse.ArgumentParser":["argparse.ArgumentParser()","コマンドラインの引数（--epochs 100 など）を受け取る道具を作ります。"],
+".add_argument":["parser.add_argument('--名前', type=int, default=値)","受け取る引数を1つ登録します。"],
+".parse_args":["parser.parse_args()","実際に引数を読み取ります。args.名前 で値を使えます。"],
+"pandas.read_csv":["pd.read_csv('ファイル.csv')","CSV を表（DataFrame）として読み込みます。"],
+"pandas.DataFrame":["pd.DataFrame(データ)","表形式のデータを作ります。"],
+".to_csv":["df.to_csv('ファイル.csv', index=False)","表を CSV に保存します。"],
+};
+
+/* ───────── Grammar (offline) ───────── */
+const G = {
+def:["def 名前(引数):","関数を作ります。次の行から字下げした部分が関数の中身です。引数に `名前=値` と書くと、省略されたときの既定値になります。"],
+class:["class 名前(親クラス):","クラス（データと処理をまとめた設計図）を作ります。中に書いた def はメソッドになります。"],
+return:["return 値","関数の結果を呼び出し元に返し、関数を終わらせます。`return a, b` と書くと2つの値をまとめて返します。"],
+import:["import ライブラリ as 別名","ライブラリを読み込みます。`as` を付けると短い名前で呼べます。"],
+from:["from ライブラリ import 名前","ライブラリから特定の名前だけを取り込みます。取り込んだ名前はそのまま使えます。"],
+as:["… as 名前","別名を付けます。import のほか、`with … as f:` や `except … as e:` でも使います。"],
+for:["for 変数 in 並び:","並びの要素を1つずつ取り出してくり返します。`[式 for x in 並び]` と書くと、結果をリストにまとめる「リスト内包表記」になります。"],
+in:["x in 並び / for x in 並び","for 文では「〜の中から取り出す」、それ以外では「〜に含まれるか」(True/False) を表します。"],
+while:["while 条件:","条件が True の間くり返します。"],
+if:["if 条件:","条件が True のときだけ中身を実行します。`A if 条件 else B` と1行で書くと「条件ならA、そうでなければB」という値になります。"],
+elif:["elif 条件:","前の if が成り立たなかったときに、別の条件を調べます。"],
+else:["else:","どの条件にも当てはまらなかったときに実行します。"],
+with:["with 物 as 名前:","使い終わったら自動で後片付け（ファイルを閉じる等）をしてくれる書き方です。`with torch.no_grad():` は「この中では勾配を記録しない」という意味です。"],
+try:["try: … except エラー:","エラーが起きるかもしれない処理を試し、起きたら except の中身を実行します。"],
+except:["except エラーの型 as e:","try の中でエラーが起きたときの処理です。"],
+finally:["finally:","エラーの有無にかかわらず最後に必ず実行します。"],
+raise:["raise エラー('説明')","わざとエラーを起こして処理を止めます。"],
+lambda:["lambda 引数: 式","名前のない小さな関数を1行で作ります。`lambda x: x**2` は「x を受け取って x の2乗を返す関数」です。"],
+yield:["yield 値","値を1つずつ順に返す関数（ジェネレータ）を作ります。"],
+pass:["pass","「何もしない」という意味です。中身が空のブロックを作るときに書きます。"],
+break:["break","くり返しを途中で抜けます。"],
+continue:["continue","今回のくり返しの残りを飛ばして次へ進みます。"],
+None:["None","「値が無い」ことを表す特別な値です。"],
+True:["True","真（はい）。"],
+False:["False","偽（いいえ）。"],
+and:["A and B","両方 True のとき True。"],
+or:["A or B","どちらかが True なら True。"],
+not:["not A","True と False を反転します。"],
+is:["A is B","同じ物かどうかを調べます。`x is None` の形でよく使います。"],
+global:["global 変数","関数の中から関数の外の変数を書き換えるときに宣言します。"],
+nonlocal:["nonlocal 変数","内側の関数から外側の関数の変数を書き換えるときに宣言します。"],
+assert:["assert 条件, 'メッセージ'","条件が False ならエラーで止めます。前提のチェックに使います。"],
+del:["del 名前","変数や要素を消します。"],
+async:["async def","非同期処理の関数を作ります。"],
+await:["await 処理","非同期処理の完了を待ちます。"],
+match:["match 値:","値の形に応じて分岐します（Python 3.10 以降）。"],
+case:["case パターン:","match の分岐先の1つです。"],
+self:["self","クラスのメソッドの第1引数で、「その物自身」を指します。`self.x = 1` はその物に x という値を持たせる意味です。"],
+__init__:["def __init__(self, …):","クラスから物を作るときに最初に自動で呼ばれる初期化のメソッドです。"],
+__name__:["if __name__ == \"__main__\":","このファイルを直接実行したときだけ下の中身を動かす、という定番の書き方です。import されたときは動きません。"],
+fstr:["f\"…{変数}…\"","f文字列。`{}` の中に書いた変数や式の値が埋め込まれます。`{x:.3f}` は小数3桁、`{n:5d}` は5桁幅の整数という書式指定です。"],
+"@":["@デコレータ","関数やクラスの直前に付けて、機能を付け足します。式の途中にある `a @ b` は行列の積です。"],
+"**":["a ** b","べき乗（a の b 乗）です。関数の呼び出しで `f(**辞書)` と書くと、辞書をキーワード引数に展開します。"],
+"//":["a // b","割り算の切り捨て（整数商）です。"],
+"%":["a % b","割り算の余りです。"],
+"->":["def f(…) -> 型:","関数が返す値の型のメモ（型ヒント）です。動作には影響しません。"],
+":=":["(名前 := 式)","式の中で値を変数に入れつつ使う書き方（セイウチ演算子）です。"],
+"==":["a == b","等しいかどうか（True/False）。`=` は代入なので別物です。"],
+"!=":["a != b","等しくないかどうか。"],
+"+=":["a += b","a = a + b の短い書き方です。"],
+"-=":["a -= b","a = a - b の短い書き方です。"],
+"*=":["a *= b","a = a * b の短い書き方です。"],
+"/=":["a /= b","a = a / b の短い書き方です。"],
+};
+const KW = new Set("False None True and as assert async await break class continue def del elif else except finally for from global if import in is lambda nonlocal not or pass raise return try while with yield".split(" "));
+const BI = new Set("print len range enumerate zip open sorted sum min max abs round int float str bool list dict set tuple isinstance type super map filter any all reversed getattr hasattr setattr next iter input Exception ValueError RuntimeError".split(" "));
+const OPS_TAP = new Set(["**","//","%","->",":=","==","!=","+=","-=","*=","/=","@"]);
+const BASE_ALIAS = {np:"numpy", plt:"matplotlib.pyplot", pd:"pandas", nn:"torch.nn", F:"torch.nn.functional", optim:"torch.optim", Path:"pathlib.Path", DataLoader:"torch.utils.data.DataLoader", Dataset:"torch.utils.data.Dataset"};
+
+/* ───────── Tokenizer ───────── */
+const RE = /([rRbBuUfF]{0,2})("""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?)|(#[^\n]*)|(0[xXoObB][\da-fA-F_]+|\d[\d_]*\.?[\d_]*(?:[eE][+-]?\d+)?j?|\.\d+(?:[eE][+-]?\d+)?j?)|([A-Za-z_\u00C0-\uFFFF][\w\u00C0-\uFFFF]*)|(\r?\n)|([ \t\f]+)|(\*\*=?|\/\/=?|->|:=|==|!=|<=|>=|<<=?|>>=?|[-+*\/%@&|^]=|[-+*\/%@<>=!&|^~:.,;()\[\]{}\\])|([\s\S])/gy;
+function tokenize(src){
+  const out = []; RE.lastIndex = 0; let m;
+  while (RE.lastIndex < src.length && (m = RE.exec(src))) {
+    if (m[2] !== undefined) out.push({t:"str", v:m[1] + m[2], pre:m[1].toLowerCase()});
+    else if (m[3] !== undefined) out.push({t:"com", v:m[3]});
+    else if (m[4] !== undefined) out.push({t:"num", v:m[4]});
+    else if (m[5] !== undefined) out.push({t:"name", v:m[5]});
+    else if (m[6] !== undefined) out.push({t:"nl", v:"\n"});
+    else if (m[7] !== undefined) out.push({t:"ws", v:m[7]});
+    else out.push({t:"op", v:m[8] ?? m[9]});
+  }
+  return out;
+}
+
+/* ───────── State ───────── */
+let doc = null;          // {name, cells:[{type, src, lines, outputs}], hash, sample}
+let ai = null;           // {overview, cells:{[ci]:{summary, lines:{[n]:{role,what,grammar}}}}, done:{[key]:1}}
+let aliases = {}, defs = {};
+let taps = [];
+let active = null;       // {ci, n}
+let sampleFn = null, sampleReady = false;
+let engine = "claude";   // claude | fast | gemini | manual
+let gem = {key:"", model:"gemini-flash-latest"};
+const ENG_LBL = {claude:"Claude", fast:"Claude 速", gemini:"Gemini", manual:"コピペ"};
+const aiName = () => engine === "gemini" ? "Gemini" : engine === "manual" ? "AI" : "Claude";
+const aiOn = () => engine === "gemini" ? !!gem.key : engine === "manual" ? true : !!sampleFn;
+const inflight = new Map();
+let batchCtl = null;
+const CH = 45;           // lines per explanation request
+let notes = {lines:{}, cells:{}};   // my own notes: lines["ci:n"], cells[ci]
+let editing = null;      // {kind:"line"|"cell", ci, n}
+let dbApi = null, uid = null;
+const NOTE_IC = `<svg class="i" viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/><path d="M7 12h6M7 16h8"/></svg>`;
+const THEME_IC = {
+  system:`<svg class="i" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
+  light:`<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`,
+  dark:`<svg class="i" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/><path d="M19 3v3M17.5 4.5h3"/></svg>`,
+};
+const THEME_LABEL = {system:"端末の設定に合わせる", light:"ライトモード", dark:"ブラックモード"};
+function applyTheme(t){
+  const root = document.documentElement;
+  if (t === "light" || t === "dark") root.setAttribute("data-theme", t); else root.removeAttribute("data-theme");
+  const b = $("#themeBtn"); b.innerHTML = THEME_IC[t] || THEME_IC.system;
+  b.title = "表示: " + THEME_LABEL[t] + "（押すと切り替え）"; b.setAttribute("aria-label", b.title);
+  b.setAttribute("aria-pressed", t === "dark" ? "true" : "false");
+}
+const notesShown = () => $("#notesBtn").getAttribute("aria-pressed") === "true";
+
+/* ───────── Sync (private per person; falls back to this browser) ───────── */
+const userPath = () => `data/users/${uid}`;
+let noteTimer = null;
+function saveNotes(keepTime){
+  if (!doc || doc.sample) return;
+  if (!keepTime) notes.updated = Date.now();
+  store.set("cr-notes-" + doc.hash, notes);
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => {
+    if (!dbApi || !uid) return;
+    dbApi.doc(`${userPath()}/notes/${doc.hash}`).set({hash:doc.hash, name:doc.name, lines:notes.lines, cells:notes.cells, updated:notes.updated || Date.now()}).catch(() => {});
+  }, 400);
+}
+function pushChunk(ci, x, start, end){
+  if (!dbApi || !uid || doc.sample) return;
+  const L = {}; const src = ai.cells[ci]?.lines || {};
+  for (let n = start; n <= end; n++) if (src[n]) L[n] = src[n];
+  dbApi.doc(`${userPath()}/ai/${doc.hash}_${ci}_${x}`).set({hash:doc.hash, ci, x, summary: x === 0 ? (ai.cells[ci]?.summary || "") : "", lines:L}).catch(() => {});
+}
+function pushOverview(){
+  if (!dbApi || !uid || doc.sample || !ai.overview) return;
+  dbApi.doc(`${userPath()}/ai/${doc.hash}_ov`).set({hash:doc.hash, ov:ai.overview}).catch(() => {});
+}
+async function pullRemote(){
+  if (!dbApi || !uid || !doc || doc.sample) return;
+  const h = doc.hash;
+  try {
+    const [ns, as] = await Promise.all([
+      dbApi.doc(`${userPath()}/notes/${h}`).get(),
+      dbApi.collection(`${userPath()}/ai`).where("hash", "==", h).get(),
+    ]);
+    if (!doc || doc.hash !== h) return;
+    let changed = false;
+    let pushLocal = !ns.exists && (Object.keys(notes.lines).length || Object.keys(notes.cells).length);
+    if (ns.exists) {
+      const r = ns.data() || {};
+      if ((r.updated || 0) >= (notes.updated || 0)) { notes = {lines:r.lines || {}, cells:r.cells || {}, updated:r.updated || 0}; changed = true; }
+      else pushLocal = true;
+    }
+    for (const d of as.docs) {
+      const r = d.data() || {};
+      if (r.ov && !ai.overview) { ai.overview = r.ov; changed = true; continue; }
+      if (r.lines && r.ci !== undefined) {
+        const c = ai.cells[r.ci] = ai.cells[r.ci] || {summary:"", lines:{}};
+        if (r.summary && !c.summary) c.summary = r.summary;
+        for (const [n, v] of Object.entries(r.lines)) if (!c.lines[n]) c.lines[n] = v;
+        ai.done[r.ci + ":" + r.x] = 1; changed = true;
+      }
+    }
+    if (changed) { store.set("cr-notes-" + h, notes); saveAI(); const keep = active; render(); if (keep) openLine(keep.ci, keep.n, false); }
+    if (pushLocal) saveNotes(true);
+  } catch {}
+}
+
+function hash(s){ let h = 2166136261; for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36) + "-" + s.length; }
+
+/* ───────── Loading ───────── */
+function srcOf(x){ return Array.isArray(x) ? x.join("") : String(x ?? ""); }
+function parseIpynb(text){
+  const nb = JSON.parse(text);
+  const cells = (nb.cells || (nb.worksheets && nb.worksheets[0] && nb.worksheets[0].cells) || []).map(c => {
+    const type = c.cell_type === "code" ? "code" : (c.cell_type === "markdown" ? "md" : "raw");
+    return {type: type === "raw" ? "md" : type, src: srcOf(c.source ?? c.input).replace(/\r\n/g, "\n"), outputs: c.outputs || []};
+  });
+  return cells;
+}
+function parsePy(text){
+  text = text.replace(/\r\n/g, "\n");
+  const parts = text.split(/^(?=# ?%%)/m);
+  if (parts.length > 1) return parts.map(p => ({type:"code", src:p.replace(/\n+$/, ""), outputs:[]}));
+  return [{type:"code", src:text.replace(/\n+$/, ""), outputs:[]}];
+}
+function loadDoc(name, cells, opts = {}){
+  cells.forEach(c => { c.lines = c.type === "code" ? c.src.split("\n") : []; });
+  const raw = cells.map(c => c.type + "\u0001" + c.src).join("\u0002");
+  doc = {name, cells, hash: hash(raw), sample: !!opts.sample};
+  ai = opts.ai ? JSON.parse(JSON.stringify(opts.ai)) : (store.get("cr-ai-" + doc.hash) || {overview:null, cells:{}, done:{}});
+  notes = opts.notes ? JSON.parse(JSON.stringify(opts.notes)) : (store.get("cr-notes-" + doc.hash) || {lines:{}, cells:{}});
+  active = null; editing = null;
+  if (!opts.sample) store.set("cr-doc", {name, cells: cells.map(c => ({type:c.type, src:c.src, outputs:c.outputs}))}) || store.set("cr-doc", {name, cells: cells.map(c => ({type:c.type, src:c.src, outputs:[]}))});
+  scan(); render();
+  window.scrollTo(0, 0);
+  pullRemote();
+}
+function saveAI(){ if (doc && !doc.sample) store.set("cr-ai-" + doc.hash, ai); }
+
+function scan(){
+  aliases = {...BASE_ALIAS}; defs = {};
+  doc.cells.forEach((c, ci) => {
+    if (c.type !== "code") return;
+    c.lines.forEach((ln, i) => {
+      let m;
+      if ((m = ln.match(/^\s*import\s+([^#]+)/))) {
+        m[1].split(",").forEach(p => { const q = p.trim().split(/\s+as\s+/); if (!q[0]) return; const mod = q[0].trim(); if (q[1]) aliases[q[1].trim()] = mod; else aliases[mod.split(".")[0]] = mod.split(".")[0]; });
+      } else if ((m = ln.match(/^\s*from\s+([\w.]+)\s+import\s+\(?([^)#]+)/))) {
+        m[2].split(",").forEach(p => { const q = p.trim().split(/\s+as\s+/); const nm = q[0].trim(); if (!nm || nm === "*") return; aliases[(q[1] || nm).trim()] = m[1] + "." + nm; });
+      }
+      if ((m = ln.match(/^(\s*)(?:async\s+)?(def|class)\s+(\w+)/))) {
+        let docstr = "";
+        const nx = (c.lines[i + 1] || "").trim();
+        const dm = nx.match(/^[rRuU]?("""|''')([\s\S]*?)(\1|$)/) || nx.match(/^[rRuU]?(["'])(.*?)\1/);
+        if (dm) docstr = dm[2];
+        defs[m[3]] = defs[m[3]] || {ci, n:i + 1, kind:m[2], line:ln.trim(), doc:docstr};
+      }
+    });
+  });
+}
+function canon(full){
+  if (!full) return "";
+  const ps = full.split(".");
+  if (ps[0] && aliases[ps[0]] && aliases[ps[0]] !== ps[0]) ps.splice(0, 1, ...aliases[ps[0]].split("."));
+  return ps.join(".");
+}
+function lookup(full){
+  const c = canon(full);
+  if (D[c]) return {key:c, e:D[c]};
+  if (c.includes(".")) {
+    const last = c.split(".").pop();
+    if (D["." + last]) return {key:"." + last, e:D["." + last], generic:true};
+  }
+  return null;
+}
+
+/* ───────── Classify tokens ───────── */
+function classify(toks){
+  const sig = []; toks.forEach((t, i) => { if (t.t !== "ws" && t.t !== "nl" && t.t !== "com") sig.push(i); });
+  let lineFirst = null, atStart = true;
+  for (const t of toks) {
+    if (t.t === "nl") { atStart = true; continue; }
+    if (t.t === "ws" || t.t === "com") continue;
+    if (atStart) { lineFirst = t.v; atStart = false; t.first = true; }
+    t.lf = lineFirst;
+  }
+  for (let k = 0; k < sig.length; k++) {
+    const t = toks[sig[k]], prev = toks[sig[k - 1]], next = toks[sig[k + 1]];
+    if (t.t === "str") { if (t.pre.includes("f")) t.g = "fstr"; continue; }
+    if (t.t === "op") {
+      if (t.v === "@" && t.first) t.g = "@";
+      else if (OPS_TAP.has(t.v)) t.g = t.v;
+      continue;
+    }
+    if (t.t !== "name") continue;
+    if (KW.has(t.v)) { t.k = "kw"; if (G[t.v]) t.g = t.v; continue; }
+    const parts = [t.v]; let j = k - 1;
+    while (j >= 1 && toks[sig[j]].v === ".") {
+      const p = toks[sig[j - 1]];
+      if (p.t === "name" && !KW.has(p.v)) { parts.unshift(p.v); j -= 2; } else { parts.unshift(""); break; }
+    }
+    t.full = parts.join(".");
+    const isAttr = prev && prev.v === ".";
+    const isCall = next && next.v === "(";
+    if (prev && (prev.v === "def" || prev.v === "class")) { t.k = "def"; t.f = 1; continue; }
+    if (t.v === "self" || t.v === "__init__" || t.v === "__name__") { t.k = t.v === "self" ? "kw" : "def"; t.g = t.v; continue; }
+    if (t.lf === "import" || t.lf === "from") { t.k = "mod"; t.f = 1; continue; }
+    if (!isAttr && BI.has(t.v) && !defs[t.v]) { t.k = "bi"; t.f = 1; continue; }
+    if (isCall) { t.k = defs[t.v] && !isAttr ? "def" : "call"; t.f = 1; continue; }
+    if (lookup(t.full) && (isAttr || aliases[t.v])) { t.k = isAttr ? "call" : "mod"; t.f = 1; continue; }
+    if (defs[t.v] && !isAttr) { t.k = "def"; t.f = 1; }
+  }
+  return toks;
+}
+function toLines(toks){
+  const lines = [[]];
+  for (const t of toks) {
+    if (t.t === "nl") { lines.push([]); continue; }
+    if (t.v.includes("\n")) {
+      t.v.split("\n").forEach((p, i) => { if (i > 0) lines.push([]); if (p) lines[lines.length - 1].push(i === 0 ? {...t, v:p} : {t:t.t, v:p}); });
+    } else lines[lines.length - 1].push(t);
+  }
+  return lines;
+}
+
+/* ───────── Render ───────── */
+function mdToHtml(src){
+  try { if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(src)); } catch {}
+  return "<p>" + esc(src).replace(/\n\n+/g, "</p><p>").replace(/\n/g, "<br>") + "</p>";
+}
+function tokHtml(t, ci, n){
+  const cls = t.k ? "t-" + t.k : (t.t === "str" ? "t-str" : t.t === "num" ? "t-num" : t.t === "com" ? "t-com" : "");
+  const v = esc(t.v);
+  if (t.g || t.f) {
+    const id = taps.push({g:t.g, full:t.full || t.v, name:t.v, ci, n}) - 1;
+    return `<span class="${cls} tap" data-tap="${id}" role="button" tabindex="0">${v}</span>`;
+  }
+  return cls ? `<span class="${cls}">${v}</span>` : v;
+}
+let codeCellNo = {};
+function render(){
+  taps = []; codeCellNo = {};
+  $("#fname").textContent = doc.name;
+  const isNb = doc.cells.length > 1 || doc.cells.some(c => c.type === "md");
+  const root = $("#doc"); root.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  let k = 0;
+  doc.cells.forEach((c, ci) => {
+    if (c.type === "md") {
+      if (!c.src.trim()) return;
+      const d = document.createElement("section"); d.className = "md"; d.innerHTML = mdToHtml(c.src); frag.append(d); return;
+    }
+    k++; codeCellNo[ci] = k;
+    const sec = document.createElement("section"); sec.className = "cell"; sec.id = "C-" + ci;
+    const lines = toLines(classify(tokenize(c.src)));
+    const wrap = $("#wrapBtn").getAttribute("aria-pressed") === "true";
+    let rows = "";
+    lines.forEach((toks, i) => {
+      const n = i + 1;
+      const cls = (ai.cells[ci]?.lines?.[n] ? " has" : "") + (notes.lines[ci + ":" + n] ? " memo" : "");
+      rows += `<div class="row" id="L-${ci}-${n}"><button class="lno${cls}" type="button" data-ci="${ci}" data-n="${n}" aria-label="${n}行目の解説"><span class="mm"></span><span class="dot"></span>${n}</button><span class="src">${toks.map(t => tokHtml(t, ci, n)).join("")}</span></div>` + noteRowHtml(ci, n);
+    });
+    sec.innerHTML = `<div class="cell-h"><div class="cell-top"><span class="cell-no">${isNb ? "[" + k + "]" : "main"}</span><span class="cell-meta">${lines.length} lines</span><div class="cell-acts"><button class="btn" type="button" data-cmemo="${ci}" title="このセルにメモ">${NOTE_IC}<span>メモ</span></button><button class="btn ghost" type="button" data-cellai="${ci}">このセルを解説</button></div></div><p class="cell-sum" id="S-${ci}">${inl(ai.cells[ci]?.summary || "")}</p><div class="cell-memo" id="CM-${ci}">${cellMemoHtml(ci)}</div></div><div class="code${wrap ? " wrap" : ""}"><div class="rows">${rows}</div></div>${outputsHtml(c.outputs)}`;
+    frag.append(sec);
+  });
+  root.append(frag);
+  $("#kind").textContent = doc.sample ? "Sample notebook" : isNb ? "Jupyter notebook" : "Python script";
+  renderOverview(); renderNotice(); renderStats(); refreshCellButtons();
+}
+function noteRowHtml(ci, n){
+  const t = notes.lines[ci + ":" + n];
+  if (!t || !notesShown() || (active && active.ci === ci && active.n === n)) return "";
+  return `<div class="note-row" id="NR-${ci}-${n}" data-noteline="${ci}:${n}">${NOTE_IC}<span>${esc(t)}</span></div>`;
+}
+function cellMemoHtml(ci){
+  if (editing && editing.kind === "cell" && editing.ci === ci) return memoEditor(notes.cells[ci] || "", "セルのメモ");
+  const t = notes.cells[ci];
+  return t ? `<div class="cmemo" data-cmemo="${ci}"><span class="k">MY NOTE</span>${esc(t)}</div>` : "";
+}
+function memoEditor(val, label){
+  return `<div class="medit"><textarea id="memoArea" aria-label="${esc(label)}" placeholder="気づいたこと、調べたこと、自分の言葉での説明など">${esc(val)}</textarea><div class="row-btns"><button class="btn primary" type="button" data-memo="save">保存</button><button class="btn ghost" type="button" data-memo="cancel">やめる</button>${val ? `<button class="btn" type="button" data-memo="del" style="color:var(--danger)">削除</button>` : ""}<span class="hint">Ctrl+Enter で保存</span></div></div>`;
+}
+function renderStats(){
+  const code = doc.cells.filter(c => c.type === "code");
+  const total = code.reduce((s, c) => s + c.lines.filter(l => l.trim()).length, 0);
+  let done = 0;
+  doc.cells.forEach((c, ci) => { if (c.type === "code") c.lines.forEach((l, i) => { if (l.trim() && ai.cells[ci]?.lines?.[i + 1]) done++; }); });
+  const nm = Object.values(notes.lines).filter(Boolean).length + Object.values(notes.cells).filter(Boolean).length;
+  $("#stats").innerHTML = `<span class="stat"><b>${code.length}</b> cells</span><span class="stat"><b>${total}</b> lines</span><span class="stat">解説 <b>${done}</b>/${total}</span><span class="stat memo">メモ <b>${nm}</b></span>`;
+}
+function outputsHtml(outs){
+  if (!outs || !outs.length) return "";
+  const strip = s => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+  let h = "";
+  for (const o of outs.slice(0, 30)) {
+    if (o.output_type === "stream") h += `<pre>${esc(strip(srcOf(o.text)).slice(0, 20000))}</pre>`;
+    else if (o.output_type === "error") h += `<pre class="err">${esc(strip((o.traceback || []).join("\n") || (o.ename + ": " + o.evalue)).slice(0, 20000))}</pre>`;
+    else if (o.data) {
+      if (o.data["image/png"]) h += `<img alt="セルの出力画像" src="data:image/png;base64,${srcOf(o.data["image/png"]).replace(/\s/g, "")}">`;
+      else if (o.data["image/jpeg"]) h += `<img alt="セルの出力画像" src="data:image/jpeg;base64,${srcOf(o.data["image/jpeg"]).replace(/\s/g, "")}">`;
+      else if (o.data["text/plain"]) h += `<pre>${esc(strip(srcOf(o.data["text/plain"])).slice(0, 20000))}</pre>`;
+    }
+  }
+  return h ? `<div class="outs"><span class="sub">出力</span>${h}</div>` : "";
+}
+function renderOverview(){
+  const el = $("#overview"); const o = ai.overview;
+  el.classList.toggle("full", !!(o && o.terms?.length));
+  if (o) {
+    el.innerHTML = `<div class="col"><h2>Overview</h2><p class="purpose">${inl(o.purpose)}</p>` +
+      (o.flow?.length ? `<div class="sub">処理の流れ</div><ol class="flow">${o.flow.map(s => `<li><span>${inl(s)}</span></li>`).join("")}</ol>` : "") + `</div>` +
+      (o.terms?.length ? `<div class="col"><h2>Key names</h2><dl class="terms">${o.terms.map(t => `<div><dt>${esc(t.name)}</dt><dd>${inl(t.meaning)}</dd></div>`).join("")}</dl></div>` : "");
+  } else if (inflight.has("ov")) {
+    el.innerHTML = `<div class="col"><h2>Overview</h2><div class="thinking">全体を読んで概要を作成中…</div></div>`;
+  } else {
+    el.innerHTML = `<div class="col"><h2>Overview</h2><p class="purpose" style="color:var(--muted)">コード全体の目的・処理の流れ・主な変数をまとめます。</p><div><button class="btn primary" type="button" id="ovBtn" ${aiOn() ? "" : "disabled"}>概要を作る</button></div>${ai.overviewErr ? `<p class="err" style="margin:0">${esc(ai.overviewErr)}</p>` : ""}</div>`;
+  }
+}
+function renderNotice(){
+  const el = $("#notice");
+  let h = "";
+  if (doc.sample) h = "<strong>サンプルを表示中です。</strong> 解説とメモは例として入れてあります。「開く」から自分の .py / .ipynb を読み込めます。";
+  else h = dbApi && uid ? "解説とメモはあなた専用の場所に保存され、同じファイルを別の端末で開いても表示されます。" : "解説とメモはこの端末のブラウザに保存され、同じファイルを開き直すと再利用されます。";
+  if (engine === "gemini") h += gem.key ? " 解説は Gemini（あなたの API キー）で作ります。" : " 解説に Gemini を選んでいますが、API キーが未設定です（上の「AI」から設定）。";
+  else if (engine === "manual") h += " 解説はコピペ方式です。依頼文をコピーして好きな AI に貼り、答えを貼り戻してください。";
+  else if (!sampleFn) h += sampleReady ? " この表示では Claude を呼び出せません。上の「AI」から Gemini やコピペ方式を選べます（辞書とメモは使えます）。" : "";
+  else h += engine === "fast" ? " 解説は Claude の速さ優先モードで作ります（あなたの Claude の利用枠を使います）。" : " 解説の作成にはあなたの Claude の利用枠を使います。";
+  el.innerHTML = h;
+}
+function refreshCellButtons(){
+  document.querySelectorAll("[data-cellai]").forEach(b => {
+    const ci = +b.dataset.cellai; const c = doc.cells[ci];
+    const chunks = Math.max(1, Math.ceil(c.lines.length / CH));
+    let done = 0, busy = false;
+    for (let x = 0; x < chunks; x++) { if (ai.done[ci + ":" + x]) done++; if (inflight.has(ci + ":" + x)) busy = true; }
+    b.disabled = !aiOn() || busy || done === chunks;
+    b.textContent = done === chunks ? "解説済み" : busy ? "作成中…" : "このセルを解説";
+  });
+  $("#allBtn").disabled = !aiOn() || !!batchCtl;
+}
+
+/* ───────── Line explanation panel ───────── */
+function lineText(ci, n){ return doc.cells[ci].lines[n - 1] ?? ""; }
+function closePanel(){
+  const prev = active;
+  document.querySelectorAll(".row.on").forEach(r => r.classList.remove("on"));
+  document.querySelectorAll(".xp").forEach(x => x.remove());
+  active = null;
+  if (editing && editing.kind === "line") editing = null;
+  if (prev) refreshNoteRow(prev.ci, prev.n);
+}
+function refreshNoteRow(ci, n){
+  $(`#NR-${ci}-${n}`)?.remove();
+  const row = $(`#L-${ci}-${n}`); if (!row) return;
+  const after = row.nextElementSibling?.classList.contains("xp") ? row.nextElementSibling : row;
+  after.insertAdjacentHTML("afterend", noteRowHtml(ci, n));
+  row.querySelector(".lno")?.classList.toggle("memo", !!notes.lines[ci + ":" + n]);
+}
+function openLine(ci, n, scroll){
+  closePanel();
+  active = {ci, n};
+  const row = $(`#L-${ci}-${n}`); if (!row) return;
+  row.classList.add("on");
+  $(`#NR-${ci}-${n}`)?.remove();
+  const p = document.createElement("div"); p.className = "xp"; p.id = "XP";
+  row.after(p);
+  fillPanel();
+  const x = ai.cells[ci]?.lines?.[n];
+  if (!x && lineText(ci, n).trim() && aiOn() && engine !== "manual") ensureChunk(ci, Math.floor((n - 1) / CH)).catch(() => {});
+  if (scroll) row.scrollIntoView({block:"center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+}
+function fillPanel(){
+  const p = $("#XP"); if (!p || !active) return;
+  const {ci, n} = active;
+  const code = p.closest(".code"); if (code && !code.classList.contains("wrap")) p.style.width = code.clientWidth + "px"; else p.style.width = "";
+  const x = ai.cells[ci]?.lines?.[n];
+  const txt = lineText(ci, n);
+  const key = ci + ":" + Math.floor((n - 1) / CH);
+  const draft = $("#XP #memoArea")?.value;
+  const card = (cls, label, html) => `<div class="xc ${cls}"><span class="k">${label}</span>${html}</div>`;
+  let body;
+  if (x) {
+    body = (x.role ? card("", "Role · 全体での役割", `<p>${inl(x.role)}</p>`) : "") +
+           (x.what ? card("", "Does · この行の処理", `<p>${inl(x.what)}</p>`) : "") +
+           (x.grammar ? card("wide gram", "Syntax · 文法メモ", `<p>${inl(x.grammar)}</p>`) : "");
+  } else if (!txt.trim()) body = card("wide", "Blank", `<p style="color:var(--muted)">空行です。処理の区切りとして入れてあります。</p>`);
+  else if (/^\s*#/.test(txt)) body = card("wide", "Comment", `<p>「#」から行末まではメモ書きで、実行されません。</p>`) + (ai.done[key] ? "" : card("wide", aiName(), waitingHtml(key)));
+  else if (ai.done[key]) body = card("wide", aiName(), `<p style="color:var(--muted)">この行には個別の解説がありません（前後の行と一緒に動く部分です）。</p>`);
+  else body = card("wide", aiName(), waitingHtml(key));
+  const mine = notes.lines[ci + ":" + n] || "";
+  const isEd = editing && editing.kind === "line" && editing.ci === ci && editing.n === n;
+  const memo = isEd ? card("wide mine", NOTE_IC + "My note · 自分のメモ", memoEditor(mine, n + "行目のメモ"))
+    : mine ? `<div class="xc wide mine" data-editline="1" style="cursor:pointer"><span class="k">${NOTE_IC}My note · 自分のメモ</span><p class="mtext">${esc(mine)}</p></div>` : "";
+  p.innerHTML = `<div class="xp-grid">${body}${memo}</div><div class="xp-foot">${!mine && !isEd ? `<button class="addmemo" type="button" data-editline="1">${NOTE_IC}メモを書く</button>` : mine && !isEd ? `<button class="addmemo" type="button" data-editline="1">${NOTE_IC}メモを編集</button>` : "<span></span>"}<div class="seg"><button class="btn" type="button" data-nav="-1">◀ 前</button><button class="btn" type="button" data-nav="0">閉じる</button><button class="btn" type="button" data-nav="1">次 ▶</button></div></div>`;
+  if (isEd) { const ta = $("#XP #memoArea"); if (ta && draft != null) ta.value = draft; if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } }
+}
+function waitingHtml(key){
+  if (inflight.has(key)) return `<div class="thinking">この部分の解説を作成中…（初回は数十秒かかることがあります）</div>`;
+  const err = ai.err?.[key];
+  if (!aiOn()) return `<p style="color:var(--muted)">${engine === "gemini" ? "Gemini の API キーが未設定です。" : "この表示では Claude を呼び出せません。"}上の「AI」ボタンから、Gemini やコピペ方式に切り替えられます。メモと、下線付きの名前の辞書は使えます。</p>`;
+  return (err ? `<p class="err">${esc(err)}</p>` : "") + `<div style="margin-top:4px"><button class="btn primary" type="button" data-retry="${key}">この部分を解説する</button></div>`;
+}
+function saveMemo(val){
+  if (!editing) return;
+  val = (val || "").replace(/\s+$/, "");
+  if (editing.kind === "line") {
+    const k = editing.ci + ":" + editing.n;
+    if (val) notes.lines[k] = val; else delete notes.lines[k];
+    $(`#L-${editing.ci}-${editing.n} .lno`)?.classList.toggle("memo", !!val);
+    editing = null; fillPanel();
+  } else {
+    const ci = editing.ci;
+    if (val) notes.cells[ci] = val; else delete notes.cells[ci];
+    editing = null; const el = $("#CM-" + ci); if (el) el.innerHTML = cellMemoHtml(ci);
+  }
+  saveNotes(); renderStats();
+}
+function cancelMemo(){
+  if (!editing) return;
+  const e = editing; editing = null;
+  if (e.kind === "line") fillPanel(); else { const el = $("#CM-" + e.ci); if (el) el.innerHTML = cellMemoHtml(e.ci); }
+}
+function step(dir){
+  if (!active) return;
+  let {ci, n} = active;
+  const codeIdx = doc.cells.map((c, i) => c.type === "code" ? i : -1).filter(i => i >= 0);
+  let pos = codeIdx.indexOf(ci);
+  for (let guard = 0; guard < 100000; guard++) {
+    n += dir;
+    if (n < 1) { pos--; if (pos < 0) return; ci = codeIdx[pos]; n = doc.cells[ci].lines.length; }
+    else if (n > doc.cells[ci].lines.length) { pos++; if (pos >= codeIdx.length) return; ci = codeIdx[pos]; n = 1; }
+    if (lineText(ci, n).trim()) break;
+  }
+  openLine(ci, n, true);
+}
+
+/* ───────── Claude calls ───────── */
+const ERR = {
+  not_granted:"Claude の利用が許可されていません。ページ右上のメニューの権限から許可できます。",
+  sampling_disabled:"このアカウントでは Claude を呼び出せません。",
+  rate_limited:"短い間に頼みすぎたか、利用上限に達しました。少し待ってからもう一度押してください。",
+  prompt_too_large:"コードが長すぎて一度に送れませんでした。",
+  session_expired:"claude.ai に再ログインしてください。",
+  invalid_json:"解説の形式が崩れました。もう一度押してください。",
+  refused:"この部分は解説できませんでした。",
+  empty_completion:"解説が空でした。もう一度押してください。",
+  no_key:"Gemini の API キーが未設定です。上の「AI」ボタンから設定してください。",
+  bad_key:"Gemini の API キーが正しくないか、使えない状態です。「AI」の設定を確認してください。",
+  bad_model:"Gemini のモデル名が見つかりません。「AI」の設定でモデル名を確認してください。",
+  g_rate:"Gemini の回数制限（無料枠）に達しました。1分ほど待ってからもう一度押してください。",
+  blocked:"Gemini と通信できませんでした。電波を確認してください。claude.ai 上で開いている場合は、外部への通信が遮られている可能性があります。",
+  g_other:"Gemini でエラーが起きました。",
+};
+const errMsg = e => (e && ERR[e.code]) ? ERR[e.code] + (e.detail ? `（${e.detail}）` : "") : "解説を取得できませんでした。もう一度押してください。";
+function parseLoose(t){
+  t = String(t || "").trim().replace(/^```[a-zA-Z]*\s*/, "").replace(/```\s*$/, "").trim();
+  try { return JSON.parse(t); } catch {}
+  const a = t.indexOf("{"), b = t.lastIndexOf("}");
+  if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch {} }
+  throw {code:"invalid_json"};
+}
+async function aiJson(prompt, {tier = "default", signal} = {}){
+  if (engine === "manual") return manualAsk(prompt, signal);
+  if (engine === "gemini") return geminiJson(prompt, signal);
+  if (!sampleFn) throw {code:"sampling_disabled"};
+  return sampleFn.json(prompt, {modelTier: engine === "fast" ? "quick" : tier, cache:{gcTime:86400000}, signal});
+}
+async function geminiJson(prompt, signal){
+  if (!gem.key) throw {code:"no_key"};
+  const model = (gem.model || "gemini-flash-latest").trim().replace(/^models\//, "");
+  let res;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method:"POST", signal,
+      headers:{"Content-Type":"application/json", "x-goog-api-key":gem.key},
+      body:JSON.stringify({contents:[{role:"user", parts:[{text:prompt}]}], generationConfig:{responseMimeType:"application/json", temperature:0.3}}),
+    });
+  } catch (e) {
+    if (e?.name === "AbortError" || signal?.aborted) throw {code:"cancelled"};
+    throw {code:"blocked"};
+  }
+  if (!res.ok) {
+    let msg = ""; try { msg = (await res.json())?.error?.message || ""; } catch {}
+    if (res.status === 429) throw {code:"g_rate"};
+    if (res.status === 401 || res.status === 403 || (res.status === 400 && /api.?key/i.test(msg))) throw {code:"bad_key"};
+    if (res.status === 404) throw {code:"bad_model"};
+    throw {code:"g_other", detail:res.status + (msg ? " " + msg.slice(0, 120) : "")};
+  }
+  const j = await res.json();
+  const parts = j?.candidates?.[0]?.content?.parts || [];
+  const text = parts.filter(x => !x.thought).map(x => x.text || "").join("");
+  if (!text.trim()) throw {code: j?.promptFeedback?.blockReason ? "refused" : "empty_completion"};
+  return parseLoose(text);
+}
+
+/* copy & paste mode */
+let manualPending = null;
+function closeManual(){ $("#mdlg").hidden = true; $("#mscrim").hidden = true; }
+function manualAsk(prompt, signal){
+  manualPending?.reject({code:"cancelled"});
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject({code:"cancelled"});
+    const onAbort = () => finish(reject, {code:"cancelled"});
+    const finish = (fn, v) => { if (manualPending !== me) return; manualPending = null; closeManual(); signal?.removeEventListener("abort", onAbort); fn(v); };
+    const me = {resolve:v => finish(resolve, v), reject:v => finish(reject, v), prompt};
+    manualPending = me;
+    signal?.addEventListener("abort", onAbort);
+    const dlg = $("#mdlg");
+    dlg.innerHTML = `<div class="grab"></div><div class="sheet-h"><h3 id="mTitle" style="font-family:var(--f-body)">コピペで解説</h3><button class="close" id="mClose" type="button" aria-label="やめる"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+<ol class="steps paste">
+<li><b>依頼文をコピー</b><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn primary" type="button" id="mCopy">依頼文をコピー</button><span id="mCopied" style="font-size:13px;color:var(--muted)"></span></div><details id="mDet"><summary>依頼文を見る（${prompt.length.toLocaleString()} 文字）</summary><textarea id="mPrompt" class="short" readonly spellcheck="false">${esc(prompt)}</textarea></details></li>
+<li><b>好きな AI に貼り付けて送信</b><small>Copilot・ChatGPT・Gemini など、どれでも大丈夫です。返ってきた答えをまるごとコピーしてください（「\`\`\`json」で囲まれていてもそのままで構いません）。</small></li>
+<li><b>答えをここに貼り付け</b><textarea id="mAns" class="short" spellcheck="false" placeholder='{"summary": "…", …}'></textarea><p id="mMsg" class="err" style="margin:0;font-size:13px"></p><div><button class="btn primary" type="button" id="mGo">読み込む</button></div></li>
+</ol>`;
+    dlg.hidden = false; $("#mscrim").hidden = false; $("#mCopy").focus();
+  });
+}
+async function copyText(t){
+  try { await navigator.clipboard.writeText(t); return true; } catch {}
+  const ta = $("#mPrompt"); if (!ta) return false;
+  $("#mDet").open = true; ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length);
+  try { return document.execCommand("copy"); } catch { return false; }
+}
+$("#mdlg").addEventListener("click", async e => {
+  if (!manualPending) return;
+  if (e.target.closest("#mClose")) return manualPending.reject({code:"cancelled"});
+  if (e.target.closest("#mCopy")) {
+    const ok = await copyText(manualPending.prompt);
+    $("#mCopied").textContent = ok ? "コピーしました" : "自動でコピーできませんでした。下の依頼文を長押しして全選択→コピーしてください。";
+    if (!ok) $("#mDet").open = true;
+  }
+  if (e.target.closest("#mGo")) {
+    const v = $("#mAns").value;
+    if (!v.trim()) { $("#mMsg").textContent = "答えを貼り付けてください。"; return; }
+    try { manualPending.resolve(parseLoose(v)); }
+    catch { $("#mMsg").textContent = "読み取れませんでした。AI の答えを最初の「{」から最後の「}」まで全部貼り付けてください。"; }
+  }
+});
+$("#mscrim").addEventListener("click", () => manualPending?.reject({code:"cancelled"}));
+document.addEventListener("keydown", e => { if (e.key === "Escape" && manualPending) { e.stopImmediatePropagation(); manualPending.reject({code:"cancelled"}); } }, true);
+
+/* AI settings */
+function updateAiUi(){
+  $("#aiLbl").textContent = ENG_LBL[engine] || "AI";
+  $("#aiBtn").title = "解説に使う AI: " + (ENG_LBL[engine] || "") + "（押すと選べます）";
+  renderNotice(); renderOverview(); refreshCellButtons(); if (!editing) fillPanel();
+}
+function openAiSettings(){
+  lastFocus = document.activeElement;
+  const sh = $("#sheet");
+  const opt = (v, t, d) => `<label class="eng"><input type="radio" name="eng" value="${v}" ${engine === v ? "checked" : ""}><span><b>${t}</b><small>${d}</small></span></label>`;
+  sh.innerHTML = `<div class="grab"></div>${head("解説に使う AI", "")}
+<div class="seg-eng">
+${window.claude ? opt("claude", "Claude（標準）", "丁寧な解説。少し時間がかかります。claude.ai で開いたときに使え、あなたの Claude の利用枠を使います。") : ""}
+${window.claude ? opt("fast", "Claude（速さ優先）", "軽いモデルで速く、利用枠も少なめ。説明は少し簡単になることがあります。") : ""}
+${opt("gemini", "Gemini", "Google の Gemini API を使います。無料枠あり。API キーが必要です。")}
+${opt("manual", "コピペ（Copilot・ChatGPT など）", "依頼文をコピーして好きな AI に貼り、答えを貼り戻します。課金も回数制限も気にせず使えます。")}
+</div>
+<div class="fld" id="gemBox" ${engine === "gemini" ? "" : "hidden"}>
+<label class="k" for="gemKey">Gemini API キー</label>
+<input id="gemKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" value="${esc(gem.key)}">
+<label class="k" for="gemModel">モデル名</label>
+<input id="gemModel" type="text" autocomplete="off" spellcheck="false" value="${esc(gem.model)}">
+<small>キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> の「Create API key」で無料で作れます。キーはこの端末のブラウザの中だけに保存され、Gemini への問い合わせにだけ使います。モデル名はふつう変えなくて大丈夫です。</small>
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button" id="gemTest">接続テスト</button><span id="gemMsg" style="font-size:13px"></span></div>
+</div>`;
+  sh.hidden = false; $("#scrim").hidden = false; $("#sheetClose").focus();
+}
+$("#aiBtn").addEventListener("click", openAiSettings);
+$("#sheet").addEventListener("change", e => {
+  if (e.target.name !== "eng") return;
+  engine = e.target.value;
+  store.set("cr-pref", {...(store.get("cr-pref") || {}), engine});
+  $("#gemBox").hidden = engine !== "gemini";
+  updateAiUi();
+});
+$("#sheet").addEventListener("input", e => {
+  if (e.target.id !== "gemKey" && e.target.id !== "gemModel") return;
+  gem = {key:$("#gemKey").value.trim(), model:$("#gemModel").value.trim() || "gemini-flash-latest"};
+  store.set("cr-gemini", gem); $("#gemMsg").textContent = ""; updateAiUi();
+});
+$("#sheet").addEventListener("click", async e => {
+  if (!e.target.closest("#gemTest")) return;
+  const m = $("#gemMsg"); m.style.color = "var(--muted)"; m.textContent = "確認中…";
+  try { const r = await geminiJson('{"ok": true} というJSONだけを返してください。'); m.style.color = "var(--accent)"; m.textContent = r ? "つながりました" : "応答が空でした"; }
+  catch (err) { m.style.color = "var(--danger)"; m.textContent = errMsg(err); }
+});
+function contextText(limit = 110000){
+  let s = ""; let k = 0;
+  doc.cells.forEach((c, ci) => {
+    if (c.type === "md") { if (c.src.trim()) s += `\n# [説明文セル]\n# ` + c.src.slice(0, 1500).replace(/\n/g, "\n# ") + "\n"; }
+    else { k++; s += `\n# ===== セル ${k} =====\n` + c.src + "\n"; }
+  });
+  if (s.length > limit) s = s.slice(0, limit * 0.7) + "\n# …（途中省略）…\n" + s.slice(-limit * 0.3);
+  return s;
+}
+const READER = "読み手は研究者で、Pythonの文法にまだ自信がありません。専門用語には短い言い換えを添え、平易な日本語で書いてください。コード中の名前はバッククォートで囲んでください。";
+function ensureChunk(ci, x, signal){
+  const key = ci + ":" + x;
+  if (ai.done[key]) return Promise.resolve();
+  if (inflight.has(key)) return inflight.get(key);
+  const c = doc.cells[ci];
+  const start = x * CH + 1, end = Math.min(c.lines.length, start + CH - 1);
+  const numbered = c.lines.slice(start - 1, end).map((l, i) => `${start + i}: ${l}`).join("\n");
+  const label = doc.cells.length > 1 ? `セル ${codeCellNo[ci]}` : "コード";
+  const prompt =
+`あなたはPythonの先生です。${READER}
+
+ファイル「${doc.name}」の全体を下に示します。そのうち「${label}」の ${start}〜${end} 行目を1行ずつ解説してください。
+
+次の形のJSONだけを返してください:
+{"summary": "${label}が全体の中で何をしているか（1〜2文）", "lines": [{"n": 行番号, "role": "コード全体の中でこの行が果たす役割（1文）", "what": "この行がしていること（1〜2文、具体的に）", "grammar": "この行でつまずきそうな文法の説明。特になければ空文字"}]}
+
+ルール:
+- 空行と、閉じ括弧だけの行は省略してよい。それ以外の行はすべて含める。
+- 複数行にまたがる1つの式は、最初の行に詳しく書き、続きの行は短くてよい。
+- grammar には、リスト内包表記・スライス・アンパック・キーワード引数・デコレータ・ブロードキャストなど、その行に実際に出てくる書き方だけを説明する。
+
+===== ファイル全体 =====
+${contextText()}
+
+===== 解説する範囲（行番号: コード）=====
+${numbered}`;
+  const pr = (async () => {
+    renderAfterState();
+    try {
+      const r = await aiJson(prompt, {tier:"default", signal});
+      const cellAi = ai.cells[ci] = ai.cells[ci] || {summary:"", lines:{}};
+      if (r && typeof r.summary === "string" && (x === 0 || !cellAi.summary)) cellAi.summary = r.summary;
+      for (const L of (Array.isArray(r?.lines) ? r.lines : [])) {
+        const n = parseInt(L.n, 10); if (!(n >= start && n <= end)) continue;
+        cellAi.lines[n] = {role:String(L.role || ""), what:String(L.what || ""), grammar:String(L.grammar || "")};
+      }
+      ai.done[key] = 1; if (ai.err) delete ai.err[key];
+      saveAI(); pushChunk(ci, x, start, end);
+    } catch (e) {
+      if (e?.code !== "cancelled") { ai.err = ai.err || {}; ai.err[key] = errMsg(e); }
+      throw e;
+    } finally {
+      inflight.delete(key);
+      afterChunk(ci, start, end);
+    }
+  })();
+  inflight.set(key, pr);
+  return pr;
+}
+function renderAfterState(){ refreshCellButtons(); fillPanel(); }
+function afterChunk(ci, start, end){
+  for (let n = start; n <= end; n++) { const b = $(`#L-${ci}-${n} .lno`); if (b && ai.cells[ci]?.lines?.[n]) b.classList.add("has"); }
+  const s = $("#S-" + ci); if (s) s.innerHTML = inl(ai.cells[ci]?.summary || "");
+  refreshCellButtons(); renderStats(); if (!(editing && editing.kind === "line")) fillPanel();
+}
+function ensureOverview(signal){
+  if (ai.overview) return Promise.resolve();
+  if (inflight.has("ov")) return inflight.get("ov");
+  const prompt =
+`あなたはPythonの先生です。${READER}
+
+次のコード（ファイル名「${doc.name}」）全体を読み、概要をまとめてください。
+次の形のJSONだけを返してください:
+{"purpose": "このコードの目的（2〜3文）", "flow": ["処理の流れを順番に、1項目1文で4〜8項目"], "terms": [{"name": "主な変数・関数・クラス名", "meaning": "それが何を表すか（1文）"}]}
+terms は読むうえで大事なものを最大12個。
+
+===== コード =====
+${contextText()}`;
+  const pr = (async () => {
+    renderOverview();
+    try {
+      const r = await aiJson(prompt, {tier:"default", signal});
+      ai.overview = {purpose:String(r?.purpose || ""), flow:Array.isArray(r?.flow) ? r.flow.map(String) : [], terms:Array.isArray(r?.terms) ? r.terms.filter(t => t && t.name).map(t => ({name:String(t.name), meaning:String(t.meaning || "")})) : []};
+      delete ai.overviewErr; saveAI(); pushOverview();
+    } catch (e) { if (e?.code !== "cancelled") ai.overviewErr = errMsg(e); throw e; }
+    finally { inflight.delete("ov"); renderOverview(); }
+  })();
+  inflight.set("ov", pr);
+  return pr;
+}
+async function explainCell(ci, signal){
+  const chunks = Math.max(1, Math.ceil(doc.cells[ci].lines.length / CH));
+  for (let x = 0; x < chunks; x++) { if (signal?.aborted) return; await ensureChunk(ci, x, signal); }
+}
+async function explainAll(){
+  if (!aiOn() || batchCtl) return;
+  batchCtl = new AbortController(); const sig = batchCtl.signal;
+  const jobs = [];
+  if (!ai.overview) jobs.push(() => ensureOverview(sig));
+  doc.cells.forEach((c, ci) => { if (c.type !== "code") return; const chunks = Math.max(1, Math.ceil(c.lines.length / CH)); for (let x = 0; x < chunks; x++) if (!ai.done[ci + ":" + x]) jobs.push(() => ensureChunk(ci, x, sig)); });
+  const prog = $("#prog"); prog.hidden = false; refreshCellButtons();
+  let i = 0, failed = 0;
+  for (const job of jobs) {
+    if (sig.aborted) break;
+    $("#progText").textContent = `解説を作成中… ${i}/${jobs.length}`;
+    $("#progFill").style.width = (i / jobs.length * 100) + "%";
+    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
+    i++;
+  }
+  $("#progFill").style.width = "100%";
+  if (!sig.aborted && i === jobs.length) $("#progText").textContent = failed ? `完了（${failed}か所は失敗。行番号を押すと再試行できます）` : "すべて解説しました";
+  else if (sig.aborted) $("#progText").textContent = "止めました";
+  batchCtl = null; refreshCellButtons();
+  setTimeout(() => { if (!batchCtl) prog.hidden = true; }, 4000);
+}
+
+/* ───────── Sheet (function / grammar) ───────── */
+let lastFocus = null, sheetCtl = null;
+function openSheet(tap){
+  lastFocus = document.activeElement;
+  const sh = $("#sheet");
+  let h = `<div class="grab"></div>`;
+  let askable = false, title = tap.name, chip = "";
+  if (tap.g && G[tap.g]) {
+    const [sig, desc] = G[tap.g];
+    title = tap.g === "fstr" ? "f文字列" : tap.g; chip = "文法";
+    h += head(title, chip) + `<div class="sig">${esc(sig)}</div><p>${inl(desc)}</p>`;
+    askable = true;
+  } else {
+    const d = defs[tap.name];
+    const isAttr = (tap.full || "").includes(".");
+    if (d && !isAttr) {
+      chip = d.kind === "class" ? "このファイルのクラス" : "このファイルの関数";
+      h += head(tap.name, chip) + `<div class="sig">${esc(d.line)}</div>` + (d.doc ? `<p>${inl(d.doc)}</p>` : `<p style="color:var(--muted)">説明文（docstring）はありません。</p>`) +
+        `<div><button class="btn" type="button" data-jump="${d.ci}:${d.n}">定義の行へ移動</button></div>`;
+      askable = true;
+    } else {
+      const hit = lookup(tap.full);
+      const c = canon(tap.full);
+      title = tap.full || tap.name;
+      if (hit) {
+        chip = hit.key.startsWith(".") ? "メソッド" : (c.split(".").length > 1 ? c.split(".").slice(0, -1).join(".") : "組み込み");
+        if (D[c] && !c.includes(".") && !BI.has(c)) chip = "ライブラリ";
+        h += head(title, chip) + `<div class="sig">${esc(hit.e[0])}</div><p>${inl(hit.e[1])}</p>` +
+          (hit.generic ? `<p style="color:var(--muted);font-size:13px">「${esc("." + tap.name)}」という名前の一般的な意味です。何に対して呼んでいるかで少し変わることがあります。</p>` : "");
+      } else {
+        chip = c && c !== tap.full ? c : "辞書にない名前";
+        h += head(title, chip) + `<p style="color:var(--muted)">内蔵の辞書には載っていません。${aiOn() ? aiName() + " に説明を作ってもらえます。" : ""}</p>`;
+      }
+      askable = true;
+    }
+  }
+  h += `<div class="ai-box" id="aiBox">${askable ? (aiOn() ? `<div><button class="btn primary" type="button" id="askBtn">このコードでの使われ方を ${aiName()} に聞く</button></div>` : `<p style="color:var(--muted);font-size:13px">上の「AI」ボタンで解説に使う AI を選ぶと、このコードでの使われ方を聞けます。</p>`) : ""}</div>`;
+  sh.innerHTML = h; sh.hidden = false; $("#scrim").hidden = false;
+  sh.dataset.tap = JSON.stringify(tap);
+  const auto = !tap.g && !defs[tap.name] && !lookup(tap.full);
+  $("#sheetClose").focus();
+  if (auto && aiOn() && engine !== "manual") askAbout(tap);
+}
+function head(t, chip){ return `<div class="sheet-h"><h3 id="sheetTitle">${esc(t)}</h3>${chip ? `<span class="chip">${esc(chip)}</span>` : ""}<button class="close" id="sheetClose" type="button" aria-label="閉じる"><svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`; }
+function closeSheet(){ sheetCtl?.abort(); sheetCtl = null; $("#sheet").hidden = true; $("#scrim").hidden = true; lastFocus?.focus?.(); }
+async function askAbout(tap){
+  const box = $("#aiBox"); if (!box) return;
+  box.innerHTML = `<div class="thinking">${engine === "manual" ? "コピペの画面で答えを待っています…" : aiName() + " に聞いています…"}</div>`;
+  sheetCtl?.abort(); sheetCtl = new AbortController();
+  const c = doc.cells[tap.ci];
+  const around = c.lines.slice(Math.max(0, tap.n - 7), tap.n + 5).map((l, i) => `${Math.max(1, tap.n - 6) + i}: ${l}`).join("\n");
+  const imports = doc.cells.filter(x => x.type === "code").flatMap(x => x.lines).filter(l => /^\s*(import|from)\s/.test(l)).slice(0, 40).join("\n");
+  const d = defs[tap.name];
+  const defSrc = d && !(tap.full || "").includes(".") ? doc.cells[d.ci].lines.slice(d.n - 1, d.n + 39).join("\n") : "";
+  const what = tap.g ? `文法「${tap.g === "fstr" ? "f文字列" : tap.g}」` : `\`${tap.full || tap.name}\`${canon(tap.full) !== tap.full ? `（正式名の推定: ${canon(tap.full)}）` : ""}`;
+  const prompt =
+`Pythonコードの中に出てくる ${what} について説明してください。${READER}
+次の形のJSONだけを返してください:
+{"summary": "何をするものか（1〜2文）", "usage": "書き方の形（短いコード1行）", "args": [{"name": "引数名", "desc": "意味（短く）"}], "returns": "返ってくるもの（なければ空文字）", "here": "下のコードの ${tap.n} 行目での具体的な使われ方（1〜3文）"}
+args は主要なものを最大5つ。文法の場合は args を空配列にしてよい。
+
+${tap.n} 行目: ${lineText(tap.ci, tap.n)}
+周辺のコード:
+${around}
+${defSrc ? "\nこのファイルでの定義:\n" + defSrc : ""}
+${imports ? "\nimport文:\n" + imports : ""}`;
+  try {
+    const r = await aiJson(prompt, {tier:"quick", signal:sheetCtl.signal});
+    if ($("#aiBox") !== box) return;
+    box.innerHTML = `<span class="k">${aiName()} の説明</span>` +
+      (r.summary ? `<p>${inl(r.summary)}</p>` : "") +
+      (r.usage ? `<div class="sig">${esc(r.usage)}</div>` : "") +
+      (Array.isArray(r.args) && r.args.length ? `<div><span class="k">主な引数</span><ul class="args">${r.args.map(a => `<li><b>${esc(a.name)}</b>${inl(a.desc)}</li>`).join("")}</ul></div>` : "") +
+      (r.returns ? `<div><span class="k">返すもの</span><p>${inl(r.returns)}</p></div>` : "") +
+      (r.here ? `<div><span class="k">${tap.n}行目での使われ方</span><p>${inl(r.here)}</p></div>` : "");
+  } catch (e) {
+    if (e?.code === "cancelled") { if ($("#aiBox") === box && !$("#sheet").hidden) box.innerHTML = `<div><button class="btn primary" type="button" id="askBtn">このコードでの使われ方を ${aiName()} に聞く</button></div>`; return; }
+    if ($("#aiBox") === box) box.innerHTML = `<p class="err" style="color:var(--danger)">${esc(errMsg(e))}</p><div><button class="btn" type="button" id="askBtn">もう一度聞く</button></div>`;
+  }
+}
+
+/* ───────── Events ───────── */
+$("#doc").addEventListener("click", e => {
+  const tk = e.target.closest("[data-tap]");
+  if (tk) { const t = taps[+tk.dataset.tap]; if (t) openSheet(t); return; }
+  const ln = e.target.closest(".lno");
+  if (ln) { const ci = +ln.dataset.ci, n = +ln.dataset.n; if (active && active.ci === ci && active.n === n) closePanel(); else openLine(ci, n, false); return; }
+  const mb = e.target.closest("[data-memo]");
+  if (mb) { const a = mb.dataset.memo; if (a === "save") saveMemo($("#memoArea")?.value); else if (a === "del") saveMemo(""); else cancelMemo(); return; }
+  if (e.target.closest("#memoArea")) return;
+  if (e.target.closest("[data-editline]") && active) { if (editing && editing.kind === "cell") cancelMemo(); editing = {kind:"line", ci:active.ci, n:active.n}; fillPanel(); return; }
+  const cm = e.target.closest("[data-cmemo]");
+  if (cm) { const ci = +cm.dataset.cmemo; if (editing) cancelMemo(); editing = {kind:"cell", ci}; const el = $("#CM-" + ci); el.innerHTML = cellMemoHtml(ci); const ta = el.querySelector("textarea"); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); return; }
+  const nr = e.target.closest("[data-noteline]");
+  if (nr) { const [ci, n] = nr.dataset.noteline.split(":").map(Number); openLine(ci, n, false); return; }
+  const nav = e.target.closest("[data-nav]");
+  if (nav) { const d = +nav.dataset.nav; if (d === 0) closePanel(); else step(d); return; }
+  const rt = e.target.closest("[data-retry]");
+  if (rt) { const [ci, x] = rt.dataset.retry.split(":").map(Number); ensureChunk(ci, x).catch(() => {}); return; }
+  const cb = e.target.closest("[data-cellai]");
+  if (cb) { explainCell(+cb.dataset.cellai).catch(() => {}); }
+});
+$("#doc").addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-tap]")) { e.preventDefault(); e.target.click(); } });
+$("#overview").addEventListener("click", e => { if (e.target.id === "ovBtn") ensureOverview().catch(() => {}); });
+$("#sheet").addEventListener("click", e => {
+  if (e.target.closest("#sheetClose")) return closeSheet();
+  if (e.target.closest("#askBtn")) { try { askAbout(JSON.parse($("#sheet").dataset.tap)); } catch {} return; }
+  const j = e.target.closest("[data-jump]");
+  if (j) { const [ci, n] = j.dataset.jump.split(":").map(Number); closeSheet(); openLine(ci, n, true); }
+  if (e.target.closest("#pasteGo")) {
+    const v = $("#pasteArea").value; if (!v.trim()) return;
+    const isNb = /^\s*\{[\s\S]*"cells"\s*:/.test(v);
+    try { loadDoc(isNb ? "貼り付けたノートブック" : "貼り付けたコード", isNb ? parseIpynb(v) : parsePy(v)); closeSheet(); }
+    catch { $("#pasteMsg").textContent = "読み込めませんでした。Python のコードか .ipynb の中身を貼り付けてください。"; }
+  }
+});
+$("#scrim").addEventListener("click", closeSheet);
+document.addEventListener("keydown", e => {
+  if (e.target.id === "memoArea" && $("#doc").contains(e.target)) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveMemo(e.target.value); }
+    else if (e.key === "Escape") { e.preventDefault(); cancelMemo(); }
+    return;
+  }
+  if (e.key === "Escape") { if (!$("#sheet").hidden) closeSheet(); else closePanel(); }
+  if (!$("#sheet").hidden || e.target.matches("input,textarea")) return;
+  if (active && (e.key === "j" || e.key === "ArrowDown" && e.altKey)) { e.preventDefault(); step(1); }
+  if (active && (e.key === "k" || e.key === "ArrowUp" && e.altKey)) { e.preventDefault(); step(-1); }
+});
+$("#file").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const text = await f.text();
+    const nb = /\.ipynb$/i.test(f.name) || /^\s*\{[\s\S]*"cells"\s*:/.test(text.slice(0, 2000));
+    loadDoc(f.name, nb ? parseIpynb(text) : parsePy(text));
+  } catch { $("#notice").innerHTML = `<strong style="color:var(--danger)">${esc(f.name)} を読み込めませんでした。</strong> .py か .ipynb のファイルを選んでください。`; }
+  e.target.value = "";
+});
+$("#pasteBtn").addEventListener("click", () => {
+  lastFocus = document.activeElement;
+  const sh = $("#sheet");
+  sh.innerHTML = `<div class="grab"></div>${head("コードを貼り付け", "")}<div class="paste"><label for="pasteArea" class="k">Python のコード、または .ipynb の中身</label><textarea id="pasteArea" spellcheck="false" placeholder="import numpy as np&#10;..."></textarea><p id="pasteMsg" style="color:var(--danger);font-size:13px"></p><div><button class="btn primary" type="button" id="pasteGo">読み込む</button></div></div>`;
+  sh.hidden = false; $("#scrim").hidden = false; $("#pasteArea").focus();
+});
+$("#allBtn").addEventListener("click", explainAll);
+$("#notesBtn").addEventListener("click", () => {
+  const on = !notesShown();
+  $("#notesBtn").setAttribute("aria-pressed", String(on));
+  store.set("cr-pref", {...(store.get("cr-pref") || {}), notes:on});
+  document.querySelectorAll(".note-row").forEach(x => x.remove());
+  if (on) Object.keys(notes.lines).forEach(k => { const [ci, n] = k.split(":").map(Number); refreshNoteRow(ci, n); });
+});
+$("#stopBtn").addEventListener("click", () => batchCtl?.abort());
+$("#wrapBtn").addEventListener("click", () => {
+  const on = $("#wrapBtn").getAttribute("aria-pressed") !== "true";
+  $("#wrapBtn").setAttribute("aria-pressed", String(on));
+  document.querySelectorAll(".code").forEach(c => c.classList.toggle("wrap", on));
+  store.set("cr-pref", {...(store.get("cr-pref") || {}), wrap:on}); fillPanel();
+});
+function setSize(px){ px = Math.max(10, Math.min(20, px)); document.documentElement.style.setProperty("--code-size", px + "px"); store.set("cr-pref", {...(store.get("cr-pref") || {}), size:px}); }
+const curSize = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--code-size")) || 13.5;
+$("#smaller").addEventListener("click", () => setSize(curSize() - 1));
+$("#bigger").addEventListener("click", () => setSize(curSize() + 1));
+addEventListener("resize", () => fillPanel());
+/* Hide the top bar while scrolling down; bring it back on a scroll up or near the top. */
+(() => {
+  const bar = $(".bar"); let lastY = scrollY, ticking = false;
+  addEventListener("scroll", () => {
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(() => {
+      const y = scrollY, dy = y - lastY;
+      if (y < 40 || batchCtl) bar.classList.remove("hide");
+      else if (dy > 4) bar.classList.add("hide");
+      else if (dy < -10) bar.classList.remove("hide");
+      if (Math.abs(dy) > 4 || y < 40) lastY = y;
+      ticking = false;
+    });
+  }, {passive:true});
+  bar.addEventListener("focusin", () => bar.classList.remove("hide"));
+})();
+
+/* ───────── Sample ───────── */
+const SAMPLE = [
+  {type:"md", src:"# 移動平均でノイズを減らす\nノイズの乗った sin 波を作り、移動平均でなめらかにして効果を確かめます。"},
+  {type:"code", src:`import numpy as np
+import matplotlib.pyplot as plt
+
+def moving_average(x, window=5):
+    """データを移動平均でなめらかにする"""
+    kernel = np.ones(window) / window
+    return np.convolve(x, kernel, mode="same")`, outputs:[]},
+  {type:"code", src:`rng = np.random.default_rng(0)
+t = np.linspace(0, 10, 200)
+signal = np.sin(t) + 0.3 * rng.standard_normal(len(t))
+
+smooth = moving_average(signal, window=9)
+error = np.mean((smooth - np.sin(t)) ** 2)
+print(f"平均二乗誤差: {error:.4f}")`, outputs:[{output_type:"stream", name:"stdout", text:["平均二乗誤差: 0.0161\n"]}]},
+  {type:"code", src:`fig, ax = plt.subplots(figsize=(6, 3))
+ax.plot(t, signal, label="観測値")
+ax.plot(t, smooth, label="移動平均")
+ax.legend()
+fig.savefig("smooth.png", dpi=150)`, outputs:[]},
+];
+const SAMPLE_AI = {
+  overview:{
+    purpose:"ノイズの乗った波形を作り、移動平均でなめらかにして、本来の波形にどれだけ近づいたかを数値と図で確かめるノートブックです。",
+    flow:["NumPy と Matplotlib を読み込み、移動平均を計算する関数 `moving_average` を用意する","sin 波にランダムなノイズを足した観測データ `signal` を作る","移動平均をかけ、本来の sin 波との平均二乗誤差を表示する","観測値となめらかにした結果を重ねて描き、画像として保存する"],
+    terms:[{name:"signal",meaning:"ノイズ入りの観測データ（200点）"},{name:"smooth",meaning:"移動平均をかけた後のデータ"},{name:"window",meaning:"何点ぶんを平均するか。大きいほどなめらかになる"},{name:"error",meaning:"なめらかにした結果と本来の sin 波のずれ（平均二乗誤差）"}]
+  },
+  done:{"1:0":1,"2:0":1,"3:0":1},
+  cells:{
+    1:{summary:"使う道具（ライブラリ）を読み込み、移動平均を計算する関数 `moving_average` を定義するセルです。", lines:{
+      1:{role:"後のセルで使う数値計算の道具を準備します。",what:"数値計算ライブラリ NumPy を読み込み、`np` という短い名前で使えるようにします。",grammar:"`import A as B` は「A を読み込んで B という別名で呼ぶ」という書き方です。"},
+      2:{role:"最後のセルで図を描くための準備です。",what:"グラフ描画ライブラリ Matplotlib の pyplot を `plt` という名前で読み込みます。",grammar:"`matplotlib.pyplot` の `.` は「matplotlib の中の pyplot」という階層を表します。"},
+      4:{role:"ノイズを減らす処理を1か所にまとめ、2つ目のセルから呼び出せるようにします。",what:"`x`（データ）と `window`（平均する点数）を受け取る関数を定義します。",grammar:"`def 名前(引数):` で関数を作ります。`window=5` は「省略したら 5 を使う」という既定値です。`:` の次の行から字下げした部分が関数の中身です。"},
+      5:{role:"関数の目的を書き残すメモです。計算には影響しません。",what:"この関数が何をするかの説明文（docstring）です。",grammar:"関数の最初に置いた三重引用符 `\"\"\"…\"\"\"` の文字列は docstring と呼ばれ、`help()` で表示されます。"},
+      6:{role:"移動平均の「重み」を作る部分です。",what:"1 を `window` 個並べた配列を `window` で割り、合計が 1 になる重み（例: 0.2 が 5 個）を作ります。",grammar:"配列を数で割ると、全要素がそれぞれ割られます（NumPy のブロードキャスト）。"},
+      7:{role:"関数の計算結果を呼び出し元に返します。",what:"データと重みを畳み込み、各点の周りの平均を計算して返します。`mode=\"same\"` で元と同じ長さになります。",grammar:"`return 値` で関数の結果を返します。`mode=\"same\"` のように名前を付けて渡す引数をキーワード引数と呼びます。"}}},
+    2:{summary:"実験用のデータを作り、移動平均の効果を数値で確かめるセルです。", lines:{
+      1:{role:"結果を毎回同じにするための乱数の準備です。",what:"シード 0 の乱数生成器を作ります。同じシードなら何度実行しても同じノイズになります。",grammar:""},
+      2:{role:"横軸（時間）を用意します。",what:"0 から 10 までを等間隔に 200 点に分けた配列 `t` を作ります。",grammar:"`np.linspace(始め, 終わり, 個数)` は終わりの値も含みます。`range` とはここが違います。"},
+      3:{role:"移動平均をかける対象の、ノイズ入り観測データを作ります。",what:"sin 波に、標準正規分布のノイズを 0.3 倍して足します。",grammar:"`len(t)` は `t` の要素数（200）です。配列どうしの `+` や `*` は要素ごとに計算されます。"},
+      5:{role:"このノートブックの主処理です。1つ目のセルの関数を使います。",what:"`signal` に 9 点の移動平均をかけ、結果を `smooth` に入れます。",grammar:"`window=9` で既定値の 5 を上書きしています。"},
+      6:{role:"なめらかにした結果がどれだけ正しいかの評価です。",what:"`smooth` と本来の sin 波の差を 2 乗して平均します（平均二乗誤差）。",grammar:"`**` はべき乗です。`** 2` で 2 乗になります。"},
+      7:{role:"評価結果を画面で確認します。",what:"誤差を小数点以下 4 桁で表示します。",grammar:"`f\"…{error:.4f}\"` は f文字列です。`{}` の中に変数を書くと値が埋め込まれ、`:.4f` は「小数 4 桁」という書式指定です。"}}},
+    3:{summary:"観測値と移動平均の結果を重ねて描き、画像ファイルに保存するセルです。", lines:{
+      1:{role:"描画の土台を作ります。",what:"横 6 × 縦 3 インチの図 `fig` と、描き込む枠 `ax` を1つ作ります。",grammar:"`fig, ax = …` は2つの戻り値を同時に受け取る書き方（アンパック）です。"},
+      2:{role:"比較の基準として元のデータを描きます。",what:"`t` を横軸、`signal` を縦軸に線を描き、凡例用の名前を付けます。",grammar:""},
+      3:{role:"処理後のデータを同じ枠に重ねます。",what:"移動平均の結果を同じ `ax` に描きます。",grammar:""},
+      4:{role:"2本の線を見分けられるようにします。",what:"`label` で付けた名前の凡例を表示します。",grammar:"`ax.legend()` のように `.` の後に書く関数はメソッドと呼び、その物（ここでは `ax`）に対する操作です。"},
+      5:{role:"結果を後から見返せるよう保存します。",what:"図を smooth.png として解像度 150 dpi で保存します。",grammar:""}}}
+  }
+};
+const SAMPLE_NOTES = {lines:{"2:6":"MSE は小さいほど本来の波形に近い。window を 5 / 9 / 21 で比べてみる。"}, cells:{3:"論文の図にするときは figsize と dpi を揃える。"}};
+function loadSample(){ loadDoc("moving_average.ipynb", JSON.parse(JSON.stringify(SAMPLE)), {sample:true, ai:SAMPLE_AI, notes:SAMPLE_NOTES}); }
+
+/* ───────── Boot ───────── */
+(function boot(){
+  const pref = store.get("cr-pref") || {};
+  if (pref.size) document.documentElement.style.setProperty("--code-size", pref.size + "px");
+  if (pref.wrap === false) $("#wrapBtn").setAttribute("aria-pressed", "false");
+  if (pref.notes === false) $("#notesBtn").setAttribute("aria-pressed", "false");
+  if (["claude","fast","gemini","manual"].includes(pref.engine)) engine = pref.engine;
+  if (!window.claude && (engine === "claude" || engine === "fast")) engine = "gemini";
+  const g = store.get("cr-gemini"); if (g && typeof g === "object") gem = {key:String(g.key || ""), model:String(g.model || "gemini-flash-latest")};
+  $("#aiLbl").textContent = ENG_LBL[engine];
+  let curTheme = pref.theme || "system";
+  applyTheme(curTheme);
+  $("#themeBtn").addEventListener("click", () => {
+    const order = ["system", "light", "dark"];
+    const next = curTheme = order[(order.indexOf(curTheme) + 1) % 3];
+    store.set("cr-pref", {...(store.get("cr-pref") || {}), theme:next}); applyTheme(next);
+  });
+  const last = store.get("cr-doc");
+  if (last && Array.isArray(last.cells) && last.cells.length) { try { loadDoc(last.name, last.cells); } catch { loadSample(); } }
+  else loadSample();
+  if (doc.sample) openLine(2, 7, false);
+  const use = window.claude && window.claude.use;
+  if (!use) { sampleReady = true; updateAiUi(); return; }
+  Promise.all([window.claude.use("db"), window.claude.use("user")].map(p => Promise.resolve(p).catch(() => null))).then(async ([d, u]) => {
+    if (!d || !u) return;
+    let id = null; try { id = await u.id(); } catch {}
+    if (!id) return;
+    dbApi = d; uid = id; renderNotice(); pullRemote();
+  });
+  Promise.resolve(window.claude.use("sample")).catch(() => null).then(s => {
+    sampleFn = s || null; sampleReady = true;
+    updateAiUi();
+  });
+})();
+</script>
+<script>
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
+</body>
+</html>
