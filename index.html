@@ -1033,6 +1033,7 @@ const ERR = {
   g_rate:"Gemini の回数制限（無料枠）に達しました。1分ほど待ってからもう一度押してください。",
   blocked:"Gemini と通信できませんでした。電波を確認してください。claude.ai 上で開いている場合は、外部への通信が遮られている可能性があります。",
   g_other:"Gemini でエラーが起きました。",
+  g_busy:"Gemini が混み合っていて、軽いモデルでも応答がありませんでした。少し時間をおいてもう一度押してください。",
 };
 const errMsg = e => (e && ERR[e.code]) ? ERR[e.code] + (e.detail ? `（${e.detail}）` : "") : "解説を取得できませんでした。もう一度押してください。";
 function parseLoose(t){
@@ -1048,9 +1049,29 @@ async function aiJson(prompt, {tier = "default", signal} = {}){
   if (!sampleFn) throw {code:"sampling_disabled"};
   return sampleFn.json(prompt, {modelTier: engine === "fast" ? "quick" : tier, cache:{gcTime:86400000}, signal});
 }
+const LITE = "gemini-flash-lite-latest";
+const sleepFor = (ms, signal) => new Promise((res, rej) => {
+  const t = setTimeout(res, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(t); rej({code:"cancelled"}); }, {once:true});
+});
 async function geminiJson(prompt, signal){
   if (!gem.key) throw {code:"no_key"};
-  const model = (gem.model || "gemini-flash-latest").trim().replace(/^models\//, "");
+  const first = (gem.model || "gemini-flash-latest").trim().replace(/^models\//, "");
+  const models = first === LITE ? [first] : [first, LITE];   // busy → retry, then fall back to the lighter model
+  let last;
+  for (const model of models) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await geminiOnce(model, prompt, signal); }
+      catch (e) {
+        last = e;
+        if (e?.code !== "g_busy") throw e;
+        if (attempt < 2) await sleepFor(attempt ? 4000 : 1500, signal);
+      }
+    }
+  }
+  throw last;
+}
+async function geminiOnce(model, prompt, signal){
   let res;
   try {
     res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -1067,6 +1088,7 @@ async function geminiJson(prompt, signal){
     if (res.status === 429) throw {code:"g_rate"};
     if (res.status === 401 || res.status === 403 || (res.status === 400 && /api.?key/i.test(msg))) throw {code:"bad_key"};
     if (res.status === 404) throw {code:"bad_model"};
+    if (res.status === 503 || res.status === 500 || res.status === 502 || res.status === 504) throw {code:"g_busy"};
     throw {code:"g_other", detail:res.status + (msg ? " " + msg.slice(0, 120) : "")};
   }
   const j = await res.json();
@@ -1144,7 +1166,7 @@ ${opt("manual", "コピペ（Copilot・ChatGPT など）", "依頼文をコピ�
 <input id="gemKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…" value="${esc(gem.key)}">
 <label class="k" for="gemModel">モデル名</label>
 <input id="gemModel" type="text" autocomplete="off" spellcheck="false" value="${esc(gem.model)}">
-<small>キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> の「Create API key」で無料で作れます。キーはこの端末のブラウザの中だけに保存され、Gemini への問い合わせにだけ使います。モデル名はふつう変えなくて大丈夫です。</small>
+<small>キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> の「Create API key」で無料で作れます。キーはこの端末のブラウザの中だけに保存され、Gemini への問い合わせにだけ使います。モデル名はふつう変えなくて大丈夫です（混み合っているときは自動で軽いモデル gemini-flash-lite-latest に切り替えます）。</small>
 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button" id="gemTest">接続テスト</button><span id="gemMsg" style="font-size:13px"></span></div>
 </div>`;
   sh.hidden = false; $("#scrim").hidden = false; $("#sheetClose").focus();
@@ -1274,7 +1296,7 @@ async function explainAll(){
     if (sig.aborted) break;
     $("#progText").textContent = `解説を作成中… ${i}/${jobs.length}`;
     $("#progFill").style.width = (i / jobs.length * 100) + "%";
-    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
+    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked","g_busy"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
     i++;
   }
   $("#progFill").style.width = "100%";
