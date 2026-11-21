@@ -1043,7 +1043,9 @@ const ERR = {
   no_key:"Gemini の API キーが未設定です。上の「AI」ボタンから設定してください。",
   bad_key:"Gemini の API キーが正しくないか、使えない状態です。「AI」の設定を確認してください。",
   bad_model:"Gemini のモデル名が見つかりません。「AI」の設定でモデル名を確認してください。",
-  g_rate:"Gemini の回数制限（無料枠）に達しました。1分ほど待ってからもう一度押してください。",
+  g_rate:"Gemini の回数制限（無料枠）に達しました。軽いモデルでも同じでした。1分ほど待ってからもう一度押してください。",
+  g_day:"Gemini の今日の無料枠を使い切りました（軽いモデルも同じでした）。枠は毎日リセットされます。それまではコピペ方式が使えます。",
+  g_zero:"選んでいる Gemini のモデルは、無料枠では使えないようです。「AI」の設定でモデル名を gemini-flash-lite-latest に変えてみてください。",
   blocked:"Gemini と通信できませんでした。電波を確認してください。claude.ai 上で開いている場合は、外部への通信が遮られている可能性があります。",
   g_other:"Gemini でエラーが起きました。",
   g_busy:"Gemini が混み合っていて、軽いモデルでも応答がありませんでした。少し時間をおいてもう一度押してください。",
@@ -1065,6 +1067,8 @@ async function aiJson(prompt, {tier = "default", signal} = {}){
   return sampleFn.json(prompt, {modelTier: engine === "fast" ? "quick" : tier, cache:{gcTime:86400000}, signal});
 }
 const LITE = "gemini-flash-lite-latest";
+const RATE = ["g_rate", "g_day", "g_zero"];
+const ctxLimit = () => engine === "gemini" ? 30000 : 110000;   // free Gemini quotas count tokens: send less of the file
 const sleepFor = (ms, signal) => new Promise((res, rej) => {
   const t = setTimeout(res, ms);
   signal?.addEventListener("abort", () => { clearTimeout(t); rej({code:"cancelled"}); }, {once:true});
@@ -1080,12 +1084,12 @@ async function geminiJson(prompt, signal){
         try { return await geminiOnce(model, prompt, signal); }
         catch (e) {
           last = e;
-          if (e?.code === "g_slow") break;                    // no answer for a long time: go straight to the next model
+          if (e?.code === "g_slow" || RATE.includes(e?.code)) break;   // too slow, or this model's quota is used up: go to the next model
           if (e?.code !== "g_busy") throw e;
           if (attempt < 2) { aiStat(`Gemini が混雑中。${attempt ? 4 : 1.5}秒後にやり直します…`); await sleepFor(attempt ? 4000 : 1500, signal); }
         }
       }
-      if (model !== models[models.length - 1]) aiStat("軽いモデルに切り替えて、やり直します…");
+      if (model !== models[models.length - 1]) aiStat(RATE.includes(last?.code) ? "回数制限のため、軽いモデルでやり直します…" : "軽いモデルに切り替えて、やり直します…");
     }
     throw last;
   } finally { aiStat(null); }
@@ -1134,7 +1138,10 @@ async function geminiOnce(model, prompt, signal){
     if (!res.ok) {
       let msg = ""; try { const t = await res.text(); msg = (JSON.parse(t)?.error?.message) || (JSON.parse(t)?.[0]?.error?.message) || ""; } catch {}
       if (res.status === 400 && noThink && /think/i.test(msg)) { noThink = false; return geminiOnce(model, prompt, signal); }
-      if (res.status === 429) throw {code:"g_rate"};
+      if (res.status === 429) {
+        const kind = /per.?day|PerDay|daily/i.test(msg) ? "g_day" : /limit:\s*0\b/.test(msg) ? "g_zero" : "g_rate";
+        throw {code:kind, detail:`${model}${msg ? ": " + msg.replace(/\s+/g, " ").slice(0, 140) : ""}`};
+      }
       if (res.status === 401 || res.status === 403 || (res.status === 400 && /api.?key/i.test(msg))) throw {code:"bad_key"};
       if (res.status === 404) throw {code:"bad_model"};
       if (res.status >= 500) throw {code:"g_busy"};
@@ -1300,7 +1307,7 @@ function ensureChunk(ci, x, signal){
 - grammar には、リスト内包表記・スライス・アンパック・キーワード引数・デコレータ・ブロードキャストなど、その行に実際に出てくる書き方だけを説明する。
 
 ===== ファイル全体 =====
-${contextText()}
+${contextText(ctxLimit())}
 
 ===== 解説する範囲（行番号: コード）=====
 ${numbered}`;
@@ -1345,7 +1352,7 @@ function ensureOverview(signal){
 terms は読むうえで大事なものを最大12個。
 
 ===== コード =====
-${contextText()}`;
+${contextText(ctxLimit())}`;
   const pr = (async () => {
     renderOverview();
     try {
@@ -1374,7 +1381,7 @@ async function explainAll(){
     if (sig.aborted) break;
     $("#progText").textContent = `解説を作成中… ${i}/${jobs.length}`;
     $("#progFill").style.width = (i / jobs.length * 100) + "%";
-    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked","g_busy","g_slow"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
+    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked","g_busy","g_slow","g_day","g_zero"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
     i++;
   }
   $("#progFill").style.width = "100%";
