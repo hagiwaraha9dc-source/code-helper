@@ -246,6 +246,7 @@ main,.bar-in,.progress{transition:margin .2s ease}
 .eng b{display:block;font-size:14px}
 .eng small,.fld small,.steps small{color:var(--muted);font-size:12.5px;line-height:1.55;display:block}
 .fld{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:12px}
+.fld select{height:40px;border:1px solid var(--line);border-radius:10px;padding:0 10px;background:var(--code-bg);color:var(--ink);font-size:14px;width:100%}
 .fld input{height:40px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:var(--code-bg);color:var(--ink);font-family:var(--f-code);font-size:14px;width:100%}
 .fld a,.steps a{color:var(--accent)}
 .steps{margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:14px}
@@ -620,11 +621,26 @@ let aliases = {}, defs = {};
 let taps = [];
 let active = null;       // {ci, n}
 let sampleFn = null, sampleReady = false;
-let engine = "claude";   // claude | fast | gemini | manual
+let engine = "claude";   // claude | fast | gemini | compat | manual
 let gem = {key:"", model:"gemini-flash-latest"};
-const ENG_LBL = {claude:"Claude", fast:"Claude 速", gemini:"Gemini", manual:"コピペ"};
-const aiName = () => engine === "gemini" ? "Gemini" : engine === "manual" ? "AI" : "Claude";
-const aiOn = () => engine === "gemini" ? !!gem.key : engine === "manual" ? true : !!sampleFn;
+/* OpenAI-compatible services (free tiers). Model names change over time: the field stays editable and "モデル一覧" fetches the current list. */
+const SVC = {
+  groq:{name:"Groq", base:"https://api.groq.com/openai/v1", model:"llama-3.3-70b-versatile", keyUrl:"https://console.groq.com/keys", ctx:20000},
+  mistral:{name:"Mistral", base:"https://api.mistral.ai/v1", model:"mistral-small-latest", keyUrl:"https://console.mistral.ai/api-keys", ctx:40000},
+  openrouter:{name:"OpenRouter", base:"https://openrouter.ai/api/v1", model:"meta-llama/llama-3.3-70b-instruct:free", keyUrl:"https://openrouter.ai/keys", ctx:30000},
+  cerebras:{name:"Cerebras", base:"https://api.cerebras.ai/v1", model:"gpt-oss-120b", keyUrl:"https://cloud.cerebras.ai/", ctx:30000},
+  custom:{name:"その他", base:"", model:"", keyUrl:"", ctx:30000},
+};
+let cmp = {svc:"groq", keys:{}, models:{}, base:""};   // a key and model per service, so switching back keeps them
+const cSvc = () => SVC[cmp.svc] || SVC.groq;
+const cName = () => cmp.svc === "custom" ? "AI" : cSvc().name;
+const cKey = () => (cmp.keys[cmp.svc] || "").trim();
+const cModel = () => (cmp.models[cmp.svc] || cSvc().model || "").trim();
+const cBase = () => (cmp.svc === "custom" ? cmp.base : cSvc().base).trim().replace(/\/+$/, "").replace(/\/chat\/completions$/, "");
+const ENG_LBL = {claude:"Claude", fast:"Claude 速", gemini:"Gemini", compat:"他AI", manual:"コピペ"};
+const engLbl = () => engine === "compat" ? (cmp.svc === "custom" ? "他AI" : cSvc().name) : (ENG_LBL[engine] || "AI");
+const aiName = () => engine === "gemini" ? "Gemini" : engine === "compat" ? cName() : engine === "manual" ? "AI" : "Claude";
+const aiOn = () => engine === "gemini" ? !!gem.key : engine === "compat" ? !!(cKey() && cBase() && cModel()) : engine === "manual" ? true : !!sampleFn;
 const inflight = new Map();
 let batchCtl = null;
 const CH = 45;           // lines per explanation request
@@ -918,6 +934,7 @@ function renderNotice(){
   if (doc.sample) h = "<strong>サンプルを表示中です。</strong> 解説とメモは例として入れてあります。「開く」から自分の .py / .ipynb を読み込めます。";
   else h = dbApi && uid ? "解説とメモはあなた専用の場所に保存され、同じファイルを別の端末で開いても表示されます。" : "解説とメモはこの端末のブラウザに保存され、同じファイルを開き直すと再利用されます。";
   if (engine === "gemini") h += gem.key ? " 解説は Gemini（あなたの API キー）で作ります。" : " 解説に Gemini を選んでいますが、API キーが未設定です（上の「AI」から設定）。";
+  else if (engine === "compat") h += aiOn() ? ` 解説は ${esc(cName())}（あなたの API キー）で作ります。` : ` 解説に ${esc(cName())} を選んでいますが、API キーなどが未設定です（上の「AI」から設定）。`;
   else if (engine === "manual") h += " 解説はコピペ方式です。依頼文をコピーして好きな AI に貼り、答えを貼り戻してください。";
   else if (!sampleFn) h += sampleReady ? " この表示では Claude を呼び出せません。上の「AI」から Gemini やコピペ方式を選べます（辞書とメモは使えます）。" : "";
   else h += engine === "fast" ? " 解説は Claude の速さ優先モードで作ります（あなたの Claude の利用枠を使います）。" : " 解説の作成にはあなたの Claude の利用枠を使います。";
@@ -993,7 +1010,7 @@ function fillPanel(){
 function waitingHtml(key){
   if (inflight.has(key)) return `<div class="thinking">この部分の解説を作成中…（初回は数十秒かかることがあります）</div>`;
   const err = ai.err?.[key];
-  if (!aiOn()) return `<p style="color:var(--muted)">${engine === "gemini" ? "Gemini の API キーが未設定です。" : "この表示では Claude を呼び出せません。"}上の「AI」ボタンから、Gemini やコピペ方式に切り替えられます。メモと、下線付きの名前の辞書は使えます。</p>`;
+  if (!aiOn()) return `<p style="color:var(--muted)">${engine === "gemini" ? "Gemini の API キーが未設定です。" : engine === "compat" ? esc(cName()) + " の API キーなどが未設定です。" : "この表示では Claude を呼び出せません。"}上の「AI」ボタンから、Gemini やコピペ方式に切り替えられます。メモと、下線付きの名前の辞書は使えます。</p>`;
   return (err ? `<p class="err">${esc(err)}</p>` : "") + `<div style="margin-top:4px"><button class="btn primary" type="button" data-retry="${key}">この部分を解説する</button></div>`;
 }
 function saveMemo(val){
@@ -1051,6 +1068,16 @@ const ERR = {
   g_busy:"Gemini が混み合っていて、軽いモデルでも応答がありませんでした。少し時間をおいてもう一度押してください。",
   g_slow:"Gemini から長い間応答がありませんでした（軽いモデルでも同じでした）。少し時間をおいてもう一度押してください。",
   g_long:"解説が長くなりすぎて途中で切れました。もう一度押してください。",
+  c_setup:"API キー・接続先・モデル名のどれかが未設定です。上の「AI」ボタンから設定してください。",
+  c_key:"API キーが正しくないか、使えない状態です。「AI」の設定を確認してください。",
+  c_model:"モデル名が見つかりません。「AI」の設定の「モデル一覧」から選び直してください。",
+  c_rate:"回数制限（無料枠）に達しました。1分ほど待ってからもう一度押すか、「AI」の設定で別のサービスに切り替えてください。",
+  c_big:"コードが長すぎて、無料枠の1回分の量を超えました。別のサービス（Mistral など）に切り替えるか、コピペ方式を使ってください。",
+  c_blocked:"通信できませんでした。電波を確認してください。電波が大丈夫なら、このサービスはブラウザからの直接通信を許可していない可能性があります（Groq か OpenRouter を試してください）。",
+  c_busy:"サービスが混み合っていて応答がありませんでした。少し時間をおいてもう一度押してください。",
+  c_slow:"長い間応答がありませんでした。少し時間をおいてもう一度押すか、別のサービスに切り替えてください。",
+  c_long:"解説が長くなりすぎて途中で切れました。もう一度押してください。",
+  c_other:"エラーが起きました。",
 };
 const errMsg = e => (e && ERR[e.code]) ? ERR[e.code] + (e.detail ? `（${e.detail}）` : "") : "解説を取得できませんでした。もう一度押してください。";
 function parseLoose(t){
@@ -1063,12 +1090,13 @@ function parseLoose(t){
 async function aiJson(prompt, {tier = "default", signal} = {}){
   if (engine === "manual") return manualAsk(prompt, signal);
   if (engine === "gemini") return geminiJson(prompt, signal);
+  if (engine === "compat") return compatJson(prompt, signal);
   if (!sampleFn) throw {code:"sampling_disabled"};
   return sampleFn.json(prompt, {modelTier: engine === "fast" ? "quick" : tier, cache:{gcTime:86400000}, signal});
 }
 const LITE = "gemini-flash-lite-latest";
 const RATE = ["g_rate", "g_day", "g_zero"];
-const ctxLimit = () => engine === "gemini" ? 30000 : 110000;   // free Gemini quotas count tokens: send less of the file
+const ctxLimit = () => engine === "gemini" ? 30000 : engine === "compat" ? cSvc().ctx : 110000;   // free Gemini quotas count tokens: send less of the file
 const sleepFor = (ms, signal) => new Promise((res, rej) => {
   const t = setTimeout(res, ms);
   signal?.addEventListener("abort", () => { clearTimeout(t); rej({code:"cancelled"}); }, {once:true});
@@ -1183,6 +1211,110 @@ async function geminiOnce(model, prompt, signal){
   }
 }
 
+/* OpenAI-compatible chat completions (Groq, Cerebras, Mistral, OpenRouter, ...) */
+let cJsonMode = {};   // per service: false once the service refuses response_format
+async function compatJson(prompt, signal){
+  if (!aiOn()) throw {code:"c_setup"};
+  let last;
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await compatOnce(prompt, signal); }
+      catch (e) {
+        last = e;
+        const wait = e?.code === "c_busy" ? (attempt ? 4000 : 1500) : e?.code === "c_rate" && e.retry != null && e.retry <= 20 ? e.retry * 1000 + 300 : 0;
+        if (!wait || attempt === 2) throw e;
+        aiStat(`${cName()} が${e.code === "c_rate" ? "回数制限中" : "混雑中"}。${Math.round(wait / 100) / 10}秒後にやり直します…`);
+        await sleepFor(wait, signal);
+      }
+    }
+    throw last;
+  } finally { aiStat(null); }
+}
+async function compatOnce(prompt, signal){
+  const name = cName(), svc = cmp.svc;
+  const ctl = new AbortController();
+  const onAbort = () => ctl.abort();
+  signal?.addEventListener("abort", onAbort, {once:true});
+  const t0 = Date.now(); let got = 0, why = null, idle = null;
+  const kick = () => { clearTimeout(idle); idle = setTimeout(() => { why = "slow"; ctl.abort(); }, IDLE_MS); };
+  const tick = setInterval(() => {
+    const sec = Math.round((Date.now() - t0) / 1000);
+    aiStat(got ? `${name} から受信中… ${got.toLocaleString()}文字（${sec}秒）` : `${name} の応答を待っています… ${sec}秒`);
+    if (Date.now() - t0 > TOTAL_MS) { why = "slow"; ctl.abort(); }
+  }, 1000);
+  aiStat(`${name} に送信しました…`);
+  const body = {model:cModel(), stream:true, temperature:0.3, max_tokens:8192,
+    messages:[{role:"system", content:"You are a helpful assistant. Reply with one JSON object only, no other text."}, {role:"user", content:prompt}]};
+  if (cJsonMode[svc] !== false) body.response_format = {type:"json_object"};
+  const headers = {"Content-Type":"application/json", "Authorization":"Bearer " + cKey()};
+  if (svc === "openrouter") { headers["HTTP-Referer"] = location.origin; headers["X-Title"] = "code helper"; }
+  try {
+    kick();
+    let res;
+    try { res = await fetch(cBase() + "/chat/completions", {method:"POST", signal:ctl.signal, headers, body:JSON.stringify(body)}); }
+    catch (e) {
+      if (why === "slow") throw {code:"c_slow"};
+      if (e?.name === "AbortError" || signal?.aborted) throw {code:"cancelled"};
+      throw {code:"c_blocked"};
+    }
+    if (!res.ok) {
+      let msg = ""; try { const t = await res.text(); const j = JSON.parse(t); msg = j?.error?.message || j?.message || j?.detail || (typeof j?.error === "string" ? j.error : "") || ""; } catch {}
+      msg = String(msg).replace(/\s+/g, " ").slice(0, 160);
+      if (res.status === 400 && body.response_format && /response.?format|json.?object|json mode/i.test(msg)) { cJsonMode[svc] = false; return compatOnce(prompt, signal); }
+      if (res.status === 401 || res.status === 403) throw {code:"c_key", detail:msg};
+      if (res.status === 404 || (res.status === 400 && /model/i.test(msg) && /not (exist|found)|decommission|invalid|unknown|no endpoints/i.test(msg))) throw {code:"c_model", detail:`${cModel()}${msg ? ": " + msg : ""}`};
+      if (res.status === 413 || (res.status === 400 && /too (large|long)|context.?length|maximum context|reduce the length/i.test(msg))) throw {code:"c_big", detail:msg};
+      if (res.status === 429) { const ra = parseFloat(res.headers.get("retry-after")); throw {code:"c_rate", retry:isFinite(ra) ? ra : null, detail:msg}; }
+      if (res.status >= 500) throw {code:"c_busy"};
+      throw {code:"c_other", detail:res.status + (msg ? " " + msg : "")};
+    }
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "", text = "", finish = "", errMsgIn = "";
+    const eat = chunk => {
+      for (const line of chunk.split(/\r?\n/)) {
+        if (!line.startsWith("data:")) continue;
+        const d = line.slice(5).trim(); if (!d || d === "[DONE]") continue;
+        let j; try { j = JSON.parse(d); } catch { continue; }
+        if (j?.error) errMsgIn = String(j.error.message || j.error);
+        const c = j?.choices?.[0];
+        if (c?.finish_reason) finish = c.finish_reason;
+        if (typeof c?.delta?.content === "string") text += c.delta.content;
+        else if (typeof c?.message?.content === "string") text += c.message.content;
+      }
+    };
+    try {
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        kick();
+        buf += dec.decode(value, {stream:true});
+        const cut = buf.lastIndexOf("\n");
+        if (cut >= 0) { eat(buf.slice(0, cut)); buf = buf.slice(cut + 1); got = text.length; }
+      }
+      eat(buf + dec.decode());
+    } catch (e) {
+      if (why === "slow") throw {code:"c_slow"};
+      if (signal?.aborted) throw {code:"cancelled"};
+      throw {code:"c_busy"};
+    }
+    if (!text.trim()) { if (errMsgIn) throw {code:/rate|limit/i.test(errMsgIn) ? "c_rate" : "c_other", detail:errMsgIn.slice(0, 160)}; throw {code: finish === "content_filter" ? "refused" : "empty_completion"}; }
+    if (finish === "length") { try { return parseLoose(text); } catch { throw {code:"c_long"}; } }
+    return parseLoose(text);
+  } finally {
+    clearTimeout(idle); clearInterval(tick); signal?.removeEventListener("abort", onAbort);
+  }
+}
+async function compatModels(){
+  const res = await fetch(cBase() + "/models", {headers: cKey() ? {"Authorization":"Bearer " + cKey()} : {}}).catch(() => { throw {code:"c_blocked"}; });
+  if (res.status === 401 || res.status === 403) throw {code:"c_key"};
+  if (!res.ok) throw {code:"c_other", detail:String(res.status)};
+  const j = await res.json().catch(() => ({}));
+  const list = (j?.data || j?.models || []).map(m => typeof m === "string" ? m : m?.id).filter(Boolean);
+  const textish = list.filter(id => !/whisper|tts|embed|guard|moderation|image|vision-only|audio|transcribe|ocr/i.test(id));
+  if (cmp.svc === "openrouter") return textish.filter(id => /:free$/.test(id)).sort();
+  return textish.sort();
+}
+
 /* copy & paste mode */
 let manualPending = null;
 function closeManual(){ $("#mdlg").hidden = true; $("#mscrim").hidden = true; }
@@ -1231,8 +1363,8 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && manualPend
 
 /* AI settings */
 function updateAiUi(){
-  $("#aiLbl").textContent = ENG_LBL[engine] || "AI";
-  $("#aiBtn").title = "解説に使う AI: " + (ENG_LBL[engine] || "") + "（押すと選べます）";
+  $("#aiLbl").textContent = engLbl();
+  $("#aiBtn").title = "解説に使う AI: " + engLbl() + "（押すと選べます）";
   renderNotice(); renderOverview(); refreshCellButtons(); if (!editing) fillPanel();
 }
 function openAiSettings(){
@@ -1244,6 +1376,7 @@ function openAiSettings(){
 ${window.claude ? opt("claude", "Claude（標準）", "丁寧な解説。少し時間がかかります。claude.ai で開いたときに使え、あなたの Claude の利用枠を使います。") : ""}
 ${window.claude ? opt("fast", "Claude（速さ優先）", "軽いモデルで速く、利用枠も少なめ。説明は少し簡単になることがあります。") : ""}
 ${opt("gemini", "Gemini", "Google の Gemini API を使います。無料枠あり。API キーが必要です。")}
+${opt("compat", "その他の AI（Groq・Mistral など）", "OpenAI 互換の API を使います。無料枠が大きめのサービスを選べます。API キーが必要です。")}
 ${opt("manual", "コピペ（Copilot・ChatGPT など）", "依頼文をコピーして好きな AI に貼り、答えを貼り戻します。課金も回数制限も気にせず使えます。")}
 </div>
 <div class="fld" id="gemBox" ${engine === "gemini" ? "" : "hidden"}>
@@ -1253,23 +1386,62 @@ ${opt("manual", "コピペ（Copilot・ChatGPT など）", "依頼文をコピ�
 <input id="gemModel" type="text" autocomplete="off" spellcheck="false" value="${esc(gem.model)}">
 <small>キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> の「Create API key」で無料で作れます。キーはこの端末のブラウザの中だけに保存され、Gemini への問い合わせにだけ使います。モデル名はふつう変えなくて大丈夫です（混み合っているときは自動で軽いモデル gemini-flash-lite-latest に切り替えます）。</small>
 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button" id="gemTest">接続テスト</button><span id="gemMsg" style="font-size:13px"></span></div>
-</div>`;
+</div>
+<div class="fld" id="cmpBox" ${engine === "compat" ? "" : "hidden"}>${cmpFields()}</div>`;
   sh.classList.add("tall"); sh.hidden = false; $("#sheetClose").focus();
 }
+function cmpFields(){
+  const v = cSvc();
+  return `<label class="k" for="cmpSvc">サービス</label>
+<select id="cmpSvc">${Object.entries(SVC).map(([k, o]) => `<option value="${k}" ${cmp.svc === k ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select>
+<small>${{groq:"とても速い。1日の回数は多めですが、1回に送れる量は小さめです。", cerebras:"とても速い。1日に使える量が多めです。ただし、このアプリ（ブラウザ）からは直接つながらないことがあります。", mistral:"無料の「Experiment」プランで使えます（電話番号の確認が必要なことがあります）。1回に送れる量が大きめです。", openrouter:"いろいろなモデルの窓口。名前が「:free」で終わるモデルは無料です（1日の回数は少なめ）。", custom:"OpenAI 互換の API なら、接続先の URL を入れて使えます。"}[cmp.svc] || ""}</small>
+${cmp.svc === "custom" ? `<label class="k" for="cmpBase">接続先 URL（…/v1 まで）</label>
+<input id="cmpBase" type="url" autocomplete="off" spellcheck="false" placeholder="https://example.com/v1" value="${esc(cmp.base)}">` : ""}
+<label class="k" for="cmpKey">${esc(v.name === "その他" ? "" : v.name + " ")}API キー</label>
+<input id="cmpKey" type="password" autocomplete="off" spellcheck="false" value="${esc(cmp.keys[cmp.svc] || "")}">
+<label class="k" for="cmpModel">モデル名</label>
+<input id="cmpModel" type="text" autocomplete="off" spellcheck="false" list="cmpModelList" placeholder="${esc(v.model)}" value="${esc(cmp.models[cmp.svc] || v.model)}">
+<datalist id="cmpModelList"></datalist>
+<small>${v.keyUrl ? `キーは <a href="${v.keyUrl}" target="_blank" rel="noopener">${esc(v.name)} のサイト</a>で作れます。` : ""}キーはこの端末のブラウザの中だけに保存され、このサービスへの問い合わせにだけ使います。モデル名は時々変わるので、つながらないときは「モデル一覧」から選んでください。</small>
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button" id="cmpTest">接続テスト</button><button class="btn" type="button" id="cmpModels">モデル一覧</button><span id="cmpMsg" style="font-size:13px"></span></div>`;
+}
+const saveCmp = () => { store.set("cr-compat", cmp); updateAiUi(); };
 $("#aiBtn").addEventListener("click", openAiSettings);
 $("#sheet").addEventListener("change", e => {
+  if (e.target.id === "cmpSvc") { cmp.svc = e.target.value; saveCmp(); $("#cmpBox").innerHTML = cmpFields(); return; }
   if (e.target.name !== "eng") return;
   engine = e.target.value;
   store.set("cr-pref", {...(store.get("cr-pref") || {}), engine});
   $("#gemBox").hidden = engine !== "gemini";
+  $("#cmpBox").hidden = engine !== "compat";
   updateAiUi();
 });
 $("#sheet").addEventListener("input", e => {
+  const id = e.target.id;
+  if (id === "cmpKey" || id === "cmpModel" || id === "cmpBase") {
+    if (id === "cmpKey") cmp.keys[cmp.svc] = e.target.value.trim();
+    if (id === "cmpModel") cmp.models[cmp.svc] = e.target.value.trim();
+    if (id === "cmpBase") cmp.base = e.target.value.trim();
+    $("#cmpMsg").textContent = ""; saveCmp(); return;
+  }
   if (e.target.id !== "gemKey" && e.target.id !== "gemModel") return;
   gem = {key:$("#gemKey").value.trim(), model:$("#gemModel").value.trim() || "gemini-flash-latest"};
   store.set("cr-gemini", gem); $("#gemMsg").textContent = ""; updateAiUi();
 });
 $("#sheet").addEventListener("click", async e => {
+  if (e.target.closest("#cmpTest") || e.target.closest("#cmpModels")) {
+    const m = $("#cmpMsg"); m.style.color = "var(--muted)"; m.textContent = "確認中…";
+    try {
+      if (e.target.closest("#cmpTest")) { const r = await compatJson('{"ok": true} というJSONだけを返してください。'); m.style.color = "var(--accent)"; m.textContent = r ? "つながりました" : "応答が空でした"; }
+      else {
+        const list = await compatModels();
+        $("#cmpModelList").innerHTML = list.map(id => `<option value="${esc(id)}">`).join("");
+        m.style.color = "var(--accent)"; m.textContent = list.length ? `${list.length}件。モデル名の欄を押すと選べます` : "一覧が空でした";
+        if (list.length && !list.includes(cModel())) { const f = $("#cmpModel"); f.value = ""; f.placeholder = "一覧から選んでください"; f.focus(); }
+      }
+    } catch (err) { m.style.color = "var(--danger)"; m.textContent = errMsg(err); }
+    return;
+  }
   if (!e.target.closest("#gemTest")) return;
   const m = $("#gemMsg"); m.style.color = "var(--muted)"; m.textContent = "確認中…";
   try { const r = await geminiJson('{"ok": true} というJSONだけを返してください。'); m.style.color = "var(--accent)"; m.textContent = r ? "つながりました" : "応答が空でした"; }
@@ -1381,7 +1553,7 @@ async function explainAll(){
     if (sig.aborted) break;
     $("#progText").textContent = `解説を作成中… ${i}/${jobs.length}`;
     $("#progFill").style.width = (i / jobs.length * 100) + "%";
-    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked","g_busy","g_slow","g_day","g_zero"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
+    try { await job(); } catch (e) { if (e?.code === "cancelled") { $("#progText").textContent = "止めました"; break; } failed++; if (["not_granted","sampling_disabled","rate_limited","session_expired","no_key","bad_key","bad_model","g_rate","blocked","g_busy","g_slow","g_day","g_zero","c_setup","c_key","c_model","c_rate","c_big","c_blocked","c_busy","c_slow"].includes(e?.code)) { $("#progText").textContent = errMsg(e); break; } }
     i++;
   }
   $("#progFill").style.width = "100%";
@@ -1633,10 +1805,11 @@ function loadSample(){ loadDoc("moving_average.ipynb", JSON.parse(JSON.stringify
   if (pref.size) document.documentElement.style.setProperty("--code-size", pref.size + "px");
   if (pref.wrap === false) $("#wrapBtn").setAttribute("aria-pressed", "false");
   if (pref.notes === false) $("#notesBtn").setAttribute("aria-pressed", "false");
-  if (["claude","fast","gemini","manual"].includes(pref.engine)) engine = pref.engine;
+  if (["claude","fast","gemini","compat","manual"].includes(pref.engine)) engine = pref.engine;
   if (!window.claude && (engine === "claude" || engine === "fast")) engine = "gemini";
   const g = store.get("cr-gemini"); if (g && typeof g === "object") gem = {key:String(g.key || ""), model:String(g.model || "gemini-flash-latest")};
-  $("#aiLbl").textContent = ENG_LBL[engine];
+  const cc = store.get("cr-compat"); if (cc && typeof cc === "object") cmp = {svc:SVC[cc.svc] ? cc.svc : "groq", keys:{...(cc.keys || {})}, models:{...(cc.models || {})}, base:String(cc.base || "")};
+  $("#aiLbl").textContent = engLbl();
   let curTheme = pref.theme || "system";
   applyTheme(curTheme);
   $("#themeBtn").addEventListener("click", () => {
