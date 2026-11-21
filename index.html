@@ -225,6 +225,18 @@ main{max-width:1000px;margin:0 auto;padding-block:26px 140px;padding-left:max(16
 .close:hover{color:var(--ink)}
 .paste{display:flex;flex-direction:column;gap:10px}
 .scrim.top{z-index:50}
+.scrim:not(.top){display:none!important}
+main,.bar-in,.progress{transition:margin .2s ease}
+@media (prefers-reduced-motion:reduce){main,.bar-in,.progress{transition:none}}
+@media (min-width:900px){
+  /* PC: the drawer becomes a sidebar and the page makes room for it */
+  body:has(#sheet:not([hidden])) :is(main,.bar-in,.progress){margin-left:max(14px,calc((100vw - 458px - 1000px) / 2));margin-right:458px}
+}
+@media (max-width:899px){
+  /* phone: bottom sheet stays, but lower so the code above it can be read and scrolled */
+  .sheet:not(.tall){max-height:52vh}
+  body:has(#sheet:not([hidden])) main{padding-bottom:calc(52vh + 24px)}
+}
 .ai-stat{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:60;max-width:calc(100% - 32px);background:var(--surface);color:var(--ink);border:1px solid var(--accent);border-radius:99px;padding:8px 16px;font-size:13px;box-shadow:var(--shadow);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}.sheet.top{z-index:51}
 .paste textarea.short{min-height:18vh}
 .seg-eng{display:flex;flex-direction:column;gap:8px}
@@ -287,7 +299,7 @@ main{max-width:1000px;margin:0 auto;padding-block:26px 140px;padding-left:max(16
 </main>
 
 <div class="scrim" id="scrim" hidden></div>
-<aside class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></aside>
+<aside class="sheet" id="sheet" hidden role="complementary" aria-labelledby="sheetTitle"></aside>
 <div class="scrim top" id="mscrim" hidden></div>
 <aside class="sheet top" id="mdlg" hidden role="dialog" aria-modal="true" aria-labelledby="mTitle"></aside>
 
@@ -1235,7 +1247,7 @@ ${opt("manual", "コピペ（Copilot・ChatGPT など）", "依頼文をコピ�
 <small>キーは <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> の「Create API key」で無料で作れます。キーはこの端末のブラウザの中だけに保存され、Gemini への問い合わせにだけ使います。モデル名はふつう変えなくて大丈夫です（混み合っているときは自動で軽いモデル gemini-flash-lite-latest に切り替えます）。</small>
 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button" id="gemTest">接続テスト</button><span id="gemMsg" style="font-size:13px"></span></div>
 </div>`;
-  sh.hidden = false; $("#scrim").hidden = false; $("#sheetClose").focus();
+  sh.classList.add("tall"); sh.hidden = false; $("#sheetClose").focus();
 }
 $("#aiBtn").addEventListener("click", openAiSettings);
 $("#sheet").addEventListener("change", e => {
@@ -1409,7 +1421,7 @@ function openSheet(tap){
     }
   }
   h += `<div class="ai-box" id="aiBox">${askable ? (aiOn() ? `<div><button class="btn primary" type="button" id="askBtn">このコードでの使われ方を ${aiName()} に聞く</button></div>` : `<p style="color:var(--muted);font-size:13px">上の「AI」ボタンで解説に使う AI を選ぶと、このコードでの使われ方を聞けます。</p>`) : ""}</div>`;
-  sh.innerHTML = h; sh.hidden = false; $("#scrim").hidden = false;
+  sh.classList.remove("tall"); sh.innerHTML = h; sh.hidden = false;
   sh.dataset.tap = JSON.stringify(tap);
   const auto = !tap.g && !defs[tap.name] && !lookup(tap.full);
   $("#sheetClose").focus();
@@ -1513,7 +1525,7 @@ $("#pasteBtn").addEventListener("click", () => {
   lastFocus = document.activeElement;
   const sh = $("#sheet");
   sh.innerHTML = `<div class="grab"></div>${head("コードを貼り付け", "")}<div class="paste"><label for="pasteArea" class="k">Python のコード、または .ipynb の中身</label><textarea id="pasteArea" spellcheck="false" placeholder="import numpy as np&#10;..."></textarea><p id="pasteMsg" style="color:var(--danger);font-size:13px"></p><div><button class="btn primary" type="button" id="pasteGo">読み込む</button></div></div>`;
-  sh.hidden = false; $("#scrim").hidden = false; $("#pasteArea").focus();
+  sh.classList.add("tall"); sh.hidden = false; $("#pasteArea").focus();
 });
 $("#allBtn").addEventListener("click", explainAll);
 $("#notesBtn").addEventListener("click", () => {
